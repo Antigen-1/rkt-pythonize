@@ -1,6 +1,6 @@
 #lang info
 (define collection "rkt-pythonize")
-(define deps '("base"))
+(define deps '("base" "nanopass"))
 (define build-deps '("scribble-lib" "racket-doc" "rackunit-lib"))
 (define scribblings '(("scribblings/rkt-pythonize.scrbl" ())))
 (define pkg-desc "Description Here")

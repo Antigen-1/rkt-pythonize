@@ -32,7 +32,7 @@
   ;; or with `raco test`. The code here does not run when this file is
   ;; required by another module.
 
-  (check-equal? (+ 2 2) 4))
+  #;(check-equal? (+ 2 2) 4))
 
 (module+ main
   ;; (Optional) main submodule. Put code here if you need it to be executed when
@@ -40,11 +40,15 @@
   ;; does not run when this file is required by another module. Documentation:
   ;; http://docs.racket-lang.org/guide/Module_Syntax.html#%28part._main-and-test%29
 
-  (require racket/cmdline)
-  (define who (box "world"))
+  (require racket/cmdline racket/contract racket/file raco/command-name "core/main.rkt")
+  (define dest (box #f))
   (command-line
-    #:program "my-program"
+    #:program (short-program+command-name)
     #:once-each
-    [("-n" "--name") name "Who to say hello to" (set-box! who name)]
-    #:args ()
-    (printf "hello ~a~n" (unbox who))))
+    [("-o" "--output") o "Where to write generated python code" (set-box! dest o)]
+    #:args sources
+    (define/contract dest-path path-string? (unbox dest))
+    ((compose1
+      (lambda (code) (generate-python-file code dest-path))
+      parse-L0)
+     (cons 'begin (map file->value sources)))))
