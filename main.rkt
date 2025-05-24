@@ -25,14 +25,16 @@
 
 ;; Code here
 
-(require "core/main.rkt" "passes/uniquify.rkt" "passes/explicit.rkt")
+(require "core/main.rkt" "passes/uniquify.rkt" "passes/explicit.rkt" "passes/cps.rkt" "passes/quote.rkt")
 
 (define (generate code dest)
   ((compose1
     (lambda (code) (generate-python-file code dest))
+    cps
     uniquify
     make-explicit
-    parse-L2)
+    add-quote
+    parse-L4)
    code))
 
 (module+ test
@@ -47,13 +49,13 @@
     (check-equal?
      (with-output-to-string
        (lambda ()
-         (system* python-exe temp)))
+         (check-true (system* python-exe temp))))
      output)))
 
   ;; Uniquify
   (test '((lambda (mod)
-            ((lambda (apply)
-               (apply '1))
+            ((lambda (none)
+               (vm-apply none '(1)))
              (get-attribute mod '"print")))
           (dynamic-require '"builtins" none))
         "1\n")
@@ -61,10 +63,24 @@
   (test '((lambda (mod)
             ((lambda (print)
                '2
-               (print '1))
+               (vm-apply print '(1)))
              (get-attribute mod '"print")))
           (dynamic-require '"builtins" none))
         "1\n")
+  ;; CPS
+  (test '(let/cc cc
+           ((lambda (mod)
+              ((lambda (print)
+                 (vm-apply print '("1"))
+                 (cc (vm-apply print '("2")))
+                 (vm-apply print '("3")))
+               (get-attribute mod '"print")))
+            (dynamic-require '"builtins" none)))
+        "1\n2\n")
+  ;; Quote
+  (test '2 "")
+  (test '#f "")
+  (test '"" "")
   )
 
 (module+ main

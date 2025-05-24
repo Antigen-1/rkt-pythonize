@@ -10,6 +10,7 @@
   (Expr (e body)
     x
     pr
+    '(d* ...)
     'd
     (begin e* ...)
     (if e0 e1 e2)
@@ -22,7 +23,7 @@
     (and (symbol? v) (not (primitive? v)))))
 (define primitive?
   (lambda (v)
-    (memq v '(apply dynamic-require get-attribute set-attribute! none))))
+    (memq v '(apply dynamic-require get-attribute set-attribute! none closure? vm-apply))))
 (define datum?
   (lambda (v)
     (or (flonum? v)
@@ -48,6 +49,9 @@
                               'name (symbol->string pr)))
                  (,x (hasheq 'type "var"
                              'name (symbol->string x)))
+                 ('(,d* ...)
+                  (hasheq 'type "datum"
+                          'value `,d*))
                  (',d (hasheq 'type "datum"
                               'value `,d))
                  ((begin ,e* ...)
@@ -86,6 +90,9 @@
   (check-equal? (render-L0 (parse-L0 ''1))
                 (hasheq 'type "datum"
                         'value 1))
+  (check-equal? (render-L0 (parse-L0 ''(1 2 "")))
+                (hasheq 'type "datum"
+                        'value '(1 2 "")))
   (check-equal? (render-L0 (parse-L0 '(lambda (x) x)))
                 (hasheq 'type "lambda"
                         'args '("x")

@@ -33,21 +33,36 @@ def refEnv(e, k):
 
     return SchemeException(f"refEnv: there is no variable called {k}")
 
+# Closure
+class Closure(object):
+    def __init__(this, func):
+        this.func = func
+
 # Primitives
-def get_attribute(obj, name):
-    return getattr(obj, name)
-def set_attribute(obj, name, value):
+def get_attribute(cc, obj, name):
+    return cc.func(getattr(obj, name))
+def set_attribute(cc, obj, name, value):
     setattr(obj, name, value)
-def apply(proc, args):
-    return proc(*args)
-def dynamic_require(name, pkg):
-    return importlib.import_module(name, pkg)
+    return cc.func(None)
+def vm_apply(cc, proc, args):
+    return cc.func(proc(*args))
+def apply(cc, proc, args):
+    if isinstance(proc, Closure):
+        return proc.func(cc, *args)
+    else:
+        return proc(cc, *args)
+def dynamic_require(cc, name, pkg):
+    return cc.func(importlib.import_module(name, pkg))
+def isClosure(cc, obj):
+    return cc.func(isinstance(obj, Closure))
 none = None
 prims = {
     "get-attribute": get_attribute,
     "set-attribute!": set_attribute,
     "apply": apply,
+    "vm-apply": vm_apply,
     "dynamic-require": dynamic_require,
+    "closure?": isClosure,
     "none": none,
 }
 
@@ -91,13 +106,16 @@ def evalLambda(arg_names, body, e):
         for i in range(len(arg_names)):
             bindEnv(ne, arg_names[i], args[i])
         return LazyBox(lambda:evalExpr(body, ne))
-    return LazyBox(lambda:func)
+    return LazyBox(lambda:Closure(func))
 def evalApp(func, args, e):
     func_v = runTrampoline(evalExpr(func, e))
     args_l = []
     for arg in args:
         args_l.append(runTrampoline(evalExpr(arg, e)))
-    return LazyBox(lambda:func_v(*args_l))
+    if isinstance(func_v, Closure):
+        return LazyBox(lambda:func_v.func(*args_l))
+    else:
+        return LazyBox(lambda:func_v(*args_l))
 def evalExpr(expr, e):
     if not "type" in expr:
         return LazyBox(lambda:SchemeException(f"evalExpr: expects an AST, given {expr}"))
