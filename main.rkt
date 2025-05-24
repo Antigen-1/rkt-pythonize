@@ -46,9 +46,9 @@
     #:program (short-program+command-name)
     #:once-each
     [("-o" "--output") o "Where to write generated python code" (set-box! dest o)]
-    #:args sources
+    #:args (source0 . sources)
     (define/contract dest-path path-string? (unbox dest))
     ((compose1
       (lambda (code) (generate-python-file code dest-path))
       parse-L0)
-     (cons 'begin (map file->value sources)))))
+     (cons 'begin (map file->value (cons source0 sources))))))
