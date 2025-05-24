@@ -25,13 +25,14 @@
 
 ;; Code here
 
-(require "core/main.rkt" "passes/uniquify.rkt")
+(require "core/main.rkt" "passes/uniquify.rkt" "passes/explicit.rkt")
 
 (define (generate code dest)
   ((compose1
     (lambda (code) (generate-python-file code dest))
     uniquify
-    parse-L1)
+    make-explicit
+    parse-L2)
    code))
 
 (module+ test
@@ -53,6 +54,14 @@
   (test '((lambda (mod)
             ((lambda (apply)
                (apply '1))
+             (get-attribute mod '"print")))
+          (dynamic-require '"builtins" none))
+        "1\n")
+  ;; Explicit
+  (test '((lambda (mod)
+            ((lambda (print)
+               '2
+               (print '1))
              (get-attribute mod '"print")))
           (dynamic-require '"builtins" none))
         "1\n")

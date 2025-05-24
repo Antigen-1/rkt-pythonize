@@ -21,7 +21,7 @@
 (define (uniquify code (table (hasheq)))
   (define-pass L1->L0 : L1 (ir) -> L0 ()
     (Expr : Expr (ir) -> Expr ()
-          ((set! ,x ,e)
+          ((set! ,x ,[e])
            (define sym (hash-ref table x x))
            `(set! ,sym ,e))
           (,x
