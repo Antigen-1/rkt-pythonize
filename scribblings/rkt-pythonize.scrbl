@@ -4,7 +4,7 @@
                     ]
                    nanopass/base
                    rkt-pythonize
-                   racket/pretty]
+                   ]
 
 @title{rkt-pythonize}
 @author{zhanghao}
@@ -23,4 +23,7 @@ My Scheme2Python Compiler.
 
 @section{Syntax}
 
-@code[#:lang "racket"]{@(pretty-format #:mode 'write (language->s-expression L))}
+@codeblock[#:keep-lang-line? #f]{
+                                 #:lang nanopass
+                                 @(format "~s" (language->s-expression L))
+           }
