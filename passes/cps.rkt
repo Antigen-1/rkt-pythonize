@@ -57,7 +57,7 @@
               (lambda (sym e expr)
                 `(,e (lambda (,sym)
                        ,expr)))
-              (parse-L0 (cons (car syms) (cons cc (cdr syms))))
+              `(,(car syms) ,cc ,(cdr syms) ...)
               syms (cons e0 e*))))))
 
 (define (cps code)

@@ -1,3 +1,3 @@
 rkt-pythonize
 =============
-README text here.
+My Scheme2Python Compiler

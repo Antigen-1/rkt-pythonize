@@ -25,7 +25,7 @@
 
 ;; Code here
 
-(require "core/main.rkt" "passes/uniquify.rkt" "passes/explicit.rkt" "passes/cps.rkt" "passes/quote.rkt")
+(require "core/main.rkt" "passes/uniquify.rkt" "passes/explicit.rkt" "passes/cps.rkt" "passes/quote.rkt" "passes/let.rkt")
 
 (define (generate code dest)
   ((compose1
@@ -34,7 +34,8 @@
     uniquify
     make-explicit
     add-quote
-    parse-L4)
+    expand-let
+    parse-L5)
    code))
 
 (module+ test
@@ -81,6 +82,24 @@
   (test '2 "")
   (test '#f "")
   (test '"" "")
+  ;; Let & Letrec
+  (test '(let ((mod (dynamic-require "builtins" none)))
+           (let ((print (get-attribute mod "print")))
+             (vm-apply print '("1"))))
+        "1\n")
+  (test '(let ((mod (dynamic-require "builtins" none))
+               (box #f))
+           (let ((print (get-attribute mod "print")))
+             (letrec ((proc
+                       (lambda ()
+                         (if box
+                             (vm-apply print '("-1"))
+                             (begin
+                               (vm-apply print '("1"))
+                               (set! box #t)
+                               (proc))))))
+               (proc))))
+        "1\n-1\n")
   )
 
 (module+ main
