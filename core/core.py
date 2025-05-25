@@ -1,5 +1,6 @@
 import importlib
 import json
+import copy
 
 class SchemeException(Exception):
     pass
@@ -39,6 +40,7 @@ class Closure(object):
         this.func = func
 
 # Primitives
+# Continuations are all closures
 def get_attribute(cc, obj, name):
     return cc.func(getattr(obj, name))
 def set_attribute(cc, obj, name, value):
@@ -55,8 +57,46 @@ def dynamic_require(cc, name, pkg):
     return cc.func(importlib.import_module(name, pkg))
 def isClosure(cc, obj):
     return cc.func(isinstance(obj, Closure))
+def ref(cc, obj, ind):
+    return cc.func(obj[ind])
+def set(cc, obj, ind, val):
+    obj[ind] = val
+    return cc.func(None)
+def append(cc, arr, obj):
+    arr.append(obj)
+    return cc.func(None)
+def equal(cc, o1, o2):
+    return cc.func(o1 == o2)
+def eq(cc, o1, o2):
+    return cc.func(o1 is o2)
+def add(cc, v1, v2):
+    return cc.func(v1 + v2)
+def sub(cc, v1, v2):
+    return cc.func(v1 - v2)
+def neg(cc, v):
+    return cc.func(-v)
+def mul(cc, v1, v2):
+    return cc.func(v1 * v2)
+def div(cc, v1, v2):
+    return cc.func(v1 / v2)
+def quo(cc, v1, v2):
+    return cc.func(v1 // v2)
+def mod(cc, v1, v2):
+    return cc.func(v1 % v2)
 none = None
 prims = {
+    "@": ref,
+    "!": set,
+    "<!": append,
+    "equal?": equal,
+    "eq?": eq,
+    "+": add,
+    "-": sub,
+    "*": mul,
+    "/": div,
+    "quotient": quo,
+    "modulo": mod,
+    "negate": neg,
     "get-attribute": get_attribute,
     "set-attribute!": set_attribute,
     "apply": apply,
@@ -97,7 +137,8 @@ def evalVar(var, e):
 def evalPrim(prim, e):
     return LazyBox(lambda:prims[prim])
 def evalDatum(v, e):
-    return LazyBox(lambda:v)
+    # Avoid mutating objects in the abstract syntax tree
+    return LazyBox(lambda:copy.deepcopy(v))
 def evalLambda(arg_names, body, e):
     def func(*args):
         if len(arg_names) != len(args):

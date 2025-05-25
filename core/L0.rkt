@@ -10,7 +10,6 @@
   (Expr (e body)
     x
     pr
-    '(d* ...)
     'd
     (begin e* ...)
     (if e0 e1 e2)
@@ -23,13 +22,22 @@
     (and (symbol? v) (not (primitive? v)))))
 (define primitive?
   (lambda (v)
-    (memq v '(apply dynamic-require get-attribute set-attribute! none closure? vm-apply))))
+    (memq v '(apply
+              dynamic-require
+              get-attribute set-attribute!
+              none
+              closure? vm-apply
+              ! @ <!
+              equal? eq?
+              + - * / quotient modulo negate))))
 (define datum?
   (lambda (v)
     (or (flonum? v)
         (fixnum? v)
         (string? v)
-        (boolean? v))))
+        (boolean? v)
+        (and (list? v)
+             (andmap datum? v)))))
 
 (define-parser parse-L0 L0)
 
@@ -49,9 +57,6 @@
                               'name (symbol->string pr)))
                  (,x (hasheq 'type "var"
                              'name (symbol->string x)))
-                 ('(,d* ...)
-                  (hasheq 'type "datum"
-                          'value `,d*))
                  (',d (hasheq 'type "datum"
                               'value `,d))
                  ((begin ,e* ...)

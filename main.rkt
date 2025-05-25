@@ -100,6 +100,37 @@
                                (proc))))))
                (proc))))
         "1\n-1\n")
+  ;; Ref & Set
+  (test '(let ((mod (dynamic-require "builtins" none)))
+           (let ((print (get-attribute mod "print")))
+             (vm-apply print (@ '(("1")) 0))))
+        "1\n")
+  (test '(let ((mod (dynamic-require "builtins" none)))
+           (let ((print (get-attribute mod "print"))
+                 (l '("1")))
+             (! l 0 "2")
+             (vm-apply print l)))
+        "2\n")
+  ;; Equation
+  (test '(let ((mod (dynamic-require "builtins" none)))
+           (let ((print
+                  (lambda (v)
+                    (let ((l '()))
+                      (<! l v)
+                      (vm-apply (get-attribute mod "print") l)))))
+             (letrec ((f 0)
+                      (s 1)
+                      (proc
+                       (lambda (n)
+                         (if (equal? n 0)
+                             none
+                             (let ((r (+ f s)))
+                               (print f)
+                               (set! f s)
+                               (set! s r)
+                               (proc (- n 1)))))))
+               (proc 10))))
+        "0\n1\n1\n2\n3\n5\n8\n13\n21\n34\n")
   )
 
 (module+ main
@@ -108,14 +139,22 @@
   ;; does not run when this file is required by another module. Documentation:
   ;; http://docs.racket-lang.org/guide/Module_Syntax.html#%28part._main-and-test%29
 
-  (require racket/cmdline racket/contract racket/file raco/command-name)
+  (require racket/cmdline racket/contract raco/command-name)
   (define dest (box #f))
   (command-line
     #:program (short-program+command-name)
     #:once-each
     [("-o" "--output") o "Where to write generated python code" (set-box! dest o)]
-    #:args (source0 . sources)
+    #:args (source)
     (define/contract dest-path path-string? (unbox dest))
     (generate
-     (cons 'begin (map file->value (cons source0 sources)))
+     (cons 'begin
+           (call-with-input-file
+             source
+             (lambda (in)
+               (let loop ()
+                 (define v (read in))
+                 (if (eof-object? v)
+                     null
+                     (cons v (loop)))))))
      dest-path)))

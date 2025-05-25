@@ -17,9 +17,6 @@
         (,pr
          `(lambda (cc)
             (cc ,pr)))
-        ('(,d* ...)
-         `(lambda (cc)
-            (cc '(,d* ...))))
         (',d
          `(lambda (cc)
             (cc ',d)))
