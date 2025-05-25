@@ -28,7 +28,7 @@
 (require "core/main.rkt" "passes/uniquify.rkt" "passes/explicit.rkt" "passes/cps.rkt" "passes/quote.rkt" "passes/let.rkt"
          "passes/named-let.rkt")
 
-(define (generate code dest #:raw? raw?)
+(define (generate code dest #:raw? (raw? #f))
   ((compose1
     (lambda (code) (generate-python-file code dest #:raw? raw?))
     cps
