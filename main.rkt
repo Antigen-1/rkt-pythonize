@@ -1,7 +1,7 @@
 #lang racket/base
 
 (module+ test
-  (require rackunit racket/port racket/system racket/file))
+  (require rackunit racket/port racket/system racket/file racket/pretty))
 
 ;; Notice
 ;; To install (from within the package directory):
@@ -25,17 +25,19 @@
 
 ;; Code here
 
-(require "core/main.rkt" "passes/uniquify.rkt" "passes/explicit.rkt" "passes/cps.rkt" "passes/quote.rkt" "passes/let.rkt")
+(require "core/main.rkt" "passes/uniquify.rkt" "passes/explicit.rkt" "passes/cps.rkt" "passes/quote.rkt" "passes/let.rkt"
+         "passes/named-let.rkt")
 
-(define (generate code dest)
+(define (generate code dest #:raw? raw?)
   ((compose1
-    (lambda (code) (generate-python-file code dest))
+    (lambda (code) (generate-python-file code dest #:raw? raw?))
     cps
     uniquify
     make-explicit
     add-quote
     expand-let
-    parse-L5)
+    expand-named-let
+    parse-L6)
    code))
 
 (module+ test
@@ -45,13 +47,16 @@
 
   (define python-exe (find-executable-path "python"))
   (define (test code output)
+    (pretty-write code)
     (let ((temp (make-temporary-file)))
-    (generate code temp)
-    (check-equal?
-     (with-output-to-string
-       (lambda ()
-         (check-true (system* python-exe temp))))
-     output)))
+      (generate code temp)
+      (check-equal?
+       (time
+        (with-output-to-string
+          (lambda ()
+            (check-true (system* python-exe temp)))))
+       output)
+      (delete-directory/files temp)))
 
   ;; Uniquify
   (test '((lambda (mod)
@@ -111,7 +116,7 @@
              (! l 0 "2")
              (vm-apply print l)))
         "2\n")
-  ;; Equation
+  ;; Fibonacci
   (test '(let ((mod (dynamic-require "builtins" none)))
            (let ((print
                   (lambda (v)
@@ -131,6 +136,17 @@
                                (proc (- n 1)))))))
                (proc 10))))
         "0\n1\n1\n2\n3\n5\n8\n13\n21\n34\n")
+  ;; Named let
+  (test '(let ((mod (dynamic-require "builtins" none)))
+           (let ((print (lambda (v)
+                          (let ((l '()))
+                            (<! l v)
+                            (vm-apply (get-attribute mod "print") l)))))
+             (let loop ((n 10) (r 0))
+               (if (equal? n 0)
+                   (print r)
+                   (loop (- n 1) (+ n r))))))
+        "55\n")
   )
 
 (module+ main
@@ -141,13 +157,18 @@
 
   (require racket/cmdline racket/contract raco/command-name)
   (define dest (box #f))
+  (define raw? (box #f))
   (command-line
     #:program (short-program+command-name)
     #:once-each
     [("-o" "--output") o "Where to write generated python code" (set-box! dest o)]
+    [("-r" "--raw") "Enable the compiler to generate raw json syntax tree" (set-box! raw? #t)]
+    [("-c" "--core") "Display the core evaluator through standard output" (displayln py-lib-string)]
     #:args (source)
     (define/contract dest-path path-string? (unbox dest))
+    (define raw?-bool (unbox raw?))
     (generate
+     #:raw? raw?-bool
      (cons 'begin
            (call-with-input-file
              source

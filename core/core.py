@@ -7,7 +7,7 @@ class SchemeException(Exception):
 
 # Evironment representation
 def makeEnv():
-    return [{}]
+    return []
 def extendEnv(e):
     return [{}] + e
 def setEnv(e, k, v):

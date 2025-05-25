@@ -7,4 +7,12 @@
 
 @defmodule[rkt-pythonize]
 
-My Scheme2Python Compiler
+My Scheme2Python Compiler.
+
+Supported features include:
+
+@itemlist[
+@item{Named let}
+@item{@racket[let/cc]}
+@item{TCO(Tail-Call Optimization)}
+]
