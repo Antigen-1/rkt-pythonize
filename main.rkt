@@ -26,7 +26,8 @@
 ;; Code here
 
 (require "core/main.rkt" "passes/uniquify.rkt" "passes/explicit.rkt" "passes/cps.rkt" "passes/quote.rkt" "passes/let.rkt"
-         "passes/named-let.rkt")
+         "passes/named-let.rkt" "passes/cond.rkt")
+(provide (rename-out (L7 L)))
 
 (define (generate code dest #:raw? (raw? #f))
   ((compose1
@@ -37,7 +38,8 @@
     add-quote
     expand-let
     expand-named-let
-    parse-L6)
+    expand-cond
+    parse-L7)
    code))
 
 (module+ test
@@ -147,6 +149,18 @@
                    (print r)
                    (loop (- n 1) (+ n r))))))
         "55\n")
+  ;; Cond
+  (test '(let ((mod (dynamic-require "builtins" none)))
+           (let ((print (lambda (v)
+                          (let ((l '()))
+                            (<! l v)
+                            (vm-apply (get-attribute mod "print") l)))))
+             (print (and))
+             (print (or))
+             (print (and #t 1))
+             (print (or 2 #t))
+             ))
+        "True\nFalse\n1\n2\n")
   )
 
 (module+ main
