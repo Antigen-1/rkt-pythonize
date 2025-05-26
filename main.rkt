@@ -162,6 +162,16 @@
              (print (or 2 #t))
              ))
         "True\nFalse\n1\n2\n")
+  ;; Internal begin
+  (test '(letrec ((mod (dynamic-require "builtins" none))
+                  (print (lambda (v)
+                           (let ((l '()))
+                             (<! l v)
+                             (vm-apply (get-attribute mod "print") l)))))
+           (begin
+             (print "1"))
+           )
+        "1\n")
   )
 
 (module+ main
