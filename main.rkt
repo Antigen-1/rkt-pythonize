@@ -26,8 +26,8 @@
 ;; Code here
 
 (require "core/main.rkt" "passes/uniquify.rkt" "passes/explicit.rkt" "passes/cps.rkt" "passes/quote.rkt" "passes/let.rkt"
-         "passes/named-let.rkt" "passes/cond.rkt" "passes/internal-begin.rkt")
-(provide (rename-out (L7 L)))
+         "passes/named-let.rkt" "passes/cond.rkt" "passes/internal-begin.rkt" "passes/chain.rkt")
+(provide (rename-out (L8 L)))
 
 (define (generate code dest #:raw? (raw? #f))
   ((compose1
@@ -40,7 +40,8 @@
     expand-let
     expand-named-let
     expand-cond
-    parse-L7)
+    expand-chain
+    parse-L8)
    code))
 
 (module+ test
@@ -172,6 +173,24 @@
              (print "1"))
            )
         "1\n")
+  ;; Chain
+  (test '(letrec ((mod (dynamic-require "builtins" none))
+                  (print (lambda (v)
+                           (let ((l '()))
+                             (<! l v)
+                             (vm-apply (=> mod "print") l)))))
+           (print "1")
+           )
+        "1\n")
+  (test '(letrec ((mod (dynamic-require "builtins" none))
+                  (print (lambda (v)
+                           (let ((l '()))
+                             (<! l v)
+                             (vm-apply (=> mod "print") l)))))
+           (=>! mod "a" 2)
+           (print (=> mod "a"))
+           )
+        "2\n")
   )
 
 (module+ main

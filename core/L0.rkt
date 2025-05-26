@@ -25,11 +25,12 @@
     (memq v '(apply
               dynamic-require
               get-attribute set-attribute!
-              none
+              none object-type
               closure? vm-apply
               ! @ <!
               equal? eq?
-              + - * / quotient modulo negate))))
+              + - * / quotient modulo negate
+              is-a?))))
 (define datum?
   (lambda (v)
     (or (flonum? v)

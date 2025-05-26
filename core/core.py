@@ -83,7 +83,10 @@ def quo(cc, v1, v2):
     return cc.func(v1 // v2)
 def mod(cc, v1, v2):
     return cc.func(v1 % v2)
+def isinstanceof(cc, obj, type):
+    return cc.func(isinstance(obj, type))
 none = None
+object_type = object
 prims = {
     "@": ref,
     "!": set,
@@ -103,6 +106,8 @@ prims = {
     "vm-apply": vm_apply,
     "dynamic-require": dynamic_require,
     "closure?": isClosure,
+    "is-a?": isinstanceof,
+    "object-type": object_type,
     "none": none,
 }
 
