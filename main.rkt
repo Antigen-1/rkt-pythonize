@@ -26,7 +26,7 @@
 ;; Code here
 
 (require "core/main.rkt" "passes/uniquify.rkt" "passes/explicit.rkt" "passes/cps.rkt" "passes/quote.rkt" "passes/let.rkt"
-         "passes/named-let.rkt" "passes/cond.rkt")
+         "passes/named-let.rkt" "passes/cond.rkt" "passes/internal-begin.rkt")
 (provide (rename-out (L7 L)))
 
 (define (generate code dest #:raw? (raw? #f))
@@ -34,6 +34,7 @@
     (lambda (code) (generate-python-file code dest #:raw? raw?))
     cps
     uniquify
+    expand-internal-begin
     make-explicit
     add-quote
     expand-let
