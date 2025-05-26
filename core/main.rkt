@@ -13,8 +13,8 @@
     dest
     (lambda (out)
       (if raw?
-          (displayln (jsexpr->string (render-L0 code)) out)
+          (displayln (jsexpr->string (render-L0 code) #:null 'none) out)
           (begin
             (write-string py-lib-string out)
             (newline out)
-            (displayln (format "run(~s)" (jsexpr->string (render-L0 code))) out))))))
+            (displayln (format "run(~s)" (jsexpr->string (render-L0 code) #:null 'none)) out))))))

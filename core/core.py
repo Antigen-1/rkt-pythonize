@@ -53,6 +53,10 @@ def apply(cc, proc, args):
         return proc.func(cc, *args)
     else:
         return proc(cc, *args)
+def make_procedure(cc, proc):
+    def func(cc, *args):
+        return apply(cc, proc, [args])
+    return cc.func(func)
 def dynamic_require(cc, name, pkg):
     return cc.func(importlib.import_module(name, pkg))
 def isClosure(cc, obj):
@@ -103,6 +107,7 @@ prims = {
     "get-attribute": get_attribute,
     "set-attribute!": set_attribute,
     "apply": apply,
+    "make-procedure": make_procedure,
     "vm-apply": vm_apply,
     "dynamic-require": dynamic_require,
     "closure?": isClosure,

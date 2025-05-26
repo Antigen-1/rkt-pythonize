@@ -1,5 +1,5 @@
 #lang racket/base
-(require nanopass/base)
+(require nanopass/base json)
 (provide L0 unparse-L0 parse-L0 render-L0)
 
 (define-language L0
@@ -22,7 +22,7 @@
     (and (symbol? v) (not (primitive? v)))))
 (define primitive?
   (lambda (v)
-    (memq v '(apply
+    (memq v '(apply make-procedure
               dynamic-require
               get-attribute set-attribute!
               none object-type
@@ -33,12 +33,7 @@
               is-a?))))
 (define datum?
   (lambda (v)
-    (or (flonum? v)
-        (fixnum? v)
-        (string? v)
-        (boolean? v)
-        (and (list? v)
-             (andmap datum? v)))))
+    (jsexpr? v #:null 'none)))
 
 (define-parser parse-L0 L0)
 

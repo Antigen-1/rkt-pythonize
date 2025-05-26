@@ -26,8 +26,8 @@
 ;; Code here
 
 (require "core/main.rkt" "passes/uniquify.rkt" "passes/explicit.rkt" "passes/cps.rkt" "passes/quote.rkt" "passes/let.rkt"
-         "passes/named-let.rkt" "passes/cond.rkt" "passes/internal-begin.rkt" "passes/chain.rkt")
-(provide (rename-out (L8 L)))
+         "passes/named-let.rkt" "passes/cond.rkt" "passes/internal-begin.rkt" "passes/chain.rkt" "passes/vm.rkt")
+(provide (rename-out (L9 L)))
 
 (define (generate code dest #:raw? (raw? #f))
   ((compose1
@@ -41,7 +41,8 @@
     expand-named-let
     expand-cond
     expand-chain
-    parse-L8)
+    expand-vm
+    parse-L9)
    code))
 
 (module+ test
@@ -115,10 +116,20 @@
              (vm-apply print (@ '(("1")) 0))))
         "1\n")
   (test '(let ((mod (dynamic-require "builtins" none)))
+           (let ((print (get-attribute mod "print")))
+             (vm-apply print (@ '#hasheq((a . (1))) "a"))))
+        "1\n")
+  (test '(let ((mod (dynamic-require "builtins" none)))
            (let ((print (get-attribute mod "print"))
                  (l '("1")))
              (! l 0 "2")
              (vm-apply print l)))
+        "2\n")
+  (test '(let ((mod (dynamic-require "builtins" none)))
+           (let ((print (get-attribute mod "print"))
+                 (t '#hasheq((a . (1)))))
+             (! t "a" '(2))
+             (vm-apply print (@ t "a"))))
         "2\n")
   ;; Fibonacci
   (test '(let ((mod (dynamic-require "builtins" none)))
@@ -191,6 +202,17 @@
            (print (=> mod "a"))
            )
         "2\n")
+  ;; VM
+  (test '(letrec ((mod (dynamic-require "builtins" none))
+                  (print (#%vm-procedure (=> mod "print") 1)))
+           (print "1")
+           )
+        "1\n")
+  (test '(letrec ((mod (dynamic-require "builtins" none))
+                  (print (#%vm-procedure (=> mod "print") #f)))
+           (print "1" "2")
+           )
+        "1 2\n")
   )
 
 (module+ main
