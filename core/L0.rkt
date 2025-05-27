@@ -25,12 +25,13 @@
     (memq v '(apply make-procedure
               dynamic-require
               get-attribute set-attribute!
-              none object-type
+              none
               closure? vm-apply
-              ! @ <!
+              ! @ <! length
               equal? eq?
               + - * / quotient modulo negate
-              is-a?))))
+              is-a? object-type stream-type
+              ))))
 (define datum?
   (lambda (v)
     (jsexpr? v #:null 'none)))

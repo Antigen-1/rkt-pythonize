@@ -26,8 +26,9 @@
 ;; Code here
 
 (require "core/main.rkt" "passes/uniquify.rkt" "passes/explicit.rkt" "passes/cps.rkt" "passes/quote.rkt" "passes/let.rkt"
-         "passes/named-let.rkt" "passes/cond.rkt" "passes/internal-begin.rkt" "passes/chain.rkt" "passes/vm.rkt")
-(provide (rename-out (L9 L)))
+         "passes/named-let.rkt" "passes/cond.rkt" "passes/internal-begin.rkt" "passes/chain.rkt" "passes/vm.rkt"
+         "passes/stream.rkt")
+(provide (rename-out (L10 L)))
 
 (define (generate code dest #:raw? (raw? #f))
   ((compose1
@@ -42,7 +43,8 @@
     expand-cond
     expand-chain
     expand-vm
-    parse-L9)
+    expand-stream
+    parse-L10)
    code))
 
 (module+ test
@@ -213,6 +215,27 @@
            (print "1" "2")
            )
         "1 2\n")
+  ;; Stream
+  (test '(letrec ((mod (dynamic-require "builtins" none))
+                  (print (#%vm-procedure (=> mod "print") 1))
+                  (stream-for-each
+                   (lambda (p s)
+                     (if (equal? s none)
+                         none
+                         (begin
+                           (p (stream-car s))
+                           (stream-for-each p (stream-cdr s))))))
+                  (numbers '(1 2 3 4 5 6))
+                  (number-stream (let loop ((i 0))
+                                   (if (equal? i (length numbers))
+                                       none
+                                       (stream-cons (@ numbers i)
+                                                    (loop (+ i 1)))))))
+
+           (stream-for-each print number-stream)
+           (stream-for-each print number-stream))
+        "1\n2\n3\n4\n5\n6\n1\n2\n3\n4\n5\n6\n"
+        )
   )
 
 (module+ main

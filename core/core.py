@@ -69,6 +69,8 @@ def set(cc, obj, ind, val):
 def append(cc, arr, obj):
     arr.append(obj)
     return cc.func(None)
+def length(cc, arr):
+    return cc.func(len(arr))
 def equal(cc, o1, o2):
     return cc.func(o1 == o2)
 def eq(cc, o1, o2):
@@ -89,12 +91,17 @@ def mod(cc, v1, v2):
     return cc.func(v1 % v2)
 def isinstanceof(cc, obj, type):
     return cc.func(isinstance(obj, type))
+class Stream(object):
+    def __init__(this, car, cdr):
+        this.car = car
+        this.cdr = cdr
 none = None
 object_type = object
 prims = {
     "@": ref,
     "!": set,
     "<!": append,
+    "length": length,
     "equal?": equal,
     "eq?": eq,
     "+": add,
@@ -112,6 +119,7 @@ prims = {
     "dynamic-require": dynamic_require,
     "closure?": isClosure,
     "is-a?": isinstanceof,
+    "stream-type": Stream,
     "object-type": object_type,
     "none": none,
 }
