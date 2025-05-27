@@ -20,6 +20,7 @@ My Scheme2Python Compiler.
 @item{Named let}
 @item{@racket[let/cc]}
 @item{TCO(Tail-Call Optimization)}
+@item{Stream}
 ]
 
 @section{Syntax}
