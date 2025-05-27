@@ -71,6 +71,8 @@ def append(cc, arr, obj):
     return cc.func(None)
 def length(cc, arr):
     return cc.func(len(arr))
+def _not(cc, b):
+    return cc.func(not b)
 def equal(cc, o1, o2):
     return cc.func(o1 == o2)
 def eq(cc, o1, o2):
@@ -102,6 +104,7 @@ prims = {
     "!": set,
     "<!": append,
     "length": length,
+    "not": _not,
     "equal?": equal,
     "eq?": eq,
     "+": add,

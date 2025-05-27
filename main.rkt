@@ -28,7 +28,7 @@
 (require "core/main.rkt" "passes/uniquify.rkt" "passes/explicit.rkt" "passes/cps.rkt" "passes/quote.rkt" "passes/let.rkt"
          "passes/named-let.rkt" "passes/cond.rkt" "passes/internal-begin.rkt" "passes/chain.rkt" "passes/vm.rkt"
          "passes/stream.rkt")
-(provide (rename-out (L10 L)))
+(provide (rename-out (L10 L)) primitives)
 
 (define (generate code dest #:raw? (raw? #f))
   ((compose1

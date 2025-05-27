@@ -1,6 +1,6 @@
 #lang racket/base
 (require nanopass/base json)
-(provide L0 unparse-L0 parse-L0 render-L0)
+(provide L0 unparse-L0 parse-L0 render-L0 primitives)
 
 (define-language L0
   (terminals
@@ -17,21 +17,24 @@
     (set! x e)
     (e0 e* ...)))
 
+(define primitives '(
+                     apply make-procedure closure? vm-apply
+                     dynamic-require
+                     get-attribute set-attribute!
+                     none
+                     ! @ <! length
+                     not
+                     equal? eq?
+                     + - * / quotient modulo negate
+                     is-a? object-type stream-type
+                     ))
+
 (define variable?
   (lambda (v)
     (and (symbol? v) (not (primitive? v)))))
 (define primitive?
   (lambda (v)
-    (memq v '(apply make-procedure
-              dynamic-require
-              get-attribute set-attribute!
-              none
-              closure? vm-apply
-              ! @ <! length
-              equal? eq?
-              + - * / quotient modulo negate
-              is-a? object-type stream-type
-              ))))
+    (memq v primitives)))
 (define datum?
   (lambda (v)
     (jsexpr? v #:null 'none)))

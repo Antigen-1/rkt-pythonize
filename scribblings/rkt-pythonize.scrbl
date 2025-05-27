@@ -28,3 +28,7 @@ My Scheme2Python Compiler.
 #:lang nanopass
 @(pretty-format #:mode 'write (language->s-expression L))
 }
+
+@section{Primitives}
+
+@code{@(pretty-format #:mode 'write (list 'quote primitives))}
