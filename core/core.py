@@ -39,15 +39,21 @@ class Closure(object):
     def __init__(this, func):
         this.func = func
 
+# Utilities
+def apply_cc(cc, v):
+    if isinstance(cc, Closure):
+        return cc.func(v)
+    else:
+        return cc(v)
+
 # Primitives
-# Continuations are all closures
 def get_attribute(cc, obj, name):
-    return cc.func(getattr(obj, name))
+    return apply_cc(cc, getattr(obj, name))
 def set_attribute(cc, obj, name, value):
     setattr(obj, name, value)
-    return cc.func(None)
+    return apply_cc(cc, None)
 def vm_apply(cc, proc, args):
-    return cc.func(proc(*args))
+    return apply_cc(cc, proc(*args))
 def apply(cc, proc, args):
     if isinstance(proc, Closure):
         return proc.func(cc, *args)
@@ -56,43 +62,49 @@ def apply(cc, proc, args):
 def make_procedure(cc, proc):
     def func(cc, *args):
         return apply(cc, proc, [args])
-    return cc.func(func)
+    return apply_cc(cc, func)
+def make_python_procedure(cc, proc, arity):
+    def func(*args):
+        if arity and (arity != len(args)):
+            raise SchemeException(f"make-python-procedure <func>: arity mismatch(expected: {arity} argument(s); given: {args})")
+        return runTrampoline(apply(lambda x:x, proc, args))
+    return apply_cc(cc, func)
 def dynamic_require(cc, name, pkg):
-    return cc.func(importlib.import_module(name, pkg))
+    return apply_cc(cc, importlib.import_module(name, pkg))
 def isClosure(cc, obj):
-    return cc.func(isinstance(obj, Closure))
+    return apply_cc(cc, isinstance(obj, Closure))
 def ref(cc, obj, ind):
-    return cc.func(obj[ind])
+    return apply_cc(cc, obj[ind])
 def set(cc, obj, ind, val):
     obj[ind] = val
-    return cc.func(None)
+    return apply_cc(cc, None)
 def append(cc, arr, obj):
     arr.append(obj)
-    return cc.func(None)
+    return apply_cc(cc, None)
 def length(cc, arr):
-    return cc.func(len(arr))
+    return apply_cc(cc, len(arr))
 def _not(cc, b):
-    return cc.func(not b)
+    return apply_cc(cc, not b)
 def equal(cc, o1, o2):
-    return cc.func(o1 == o2)
+    return apply_cc(cc, o1 == o2)
 def eq(cc, o1, o2):
-    return cc.func(o1 is o2)
+    return apply_cc(cc, o1 is o2)
 def add(cc, v1, v2):
-    return cc.func(v1 + v2)
+    return apply_cc(cc, v1 + v2)
 def sub(cc, v1, v2):
-    return cc.func(v1 - v2)
+    return apply_cc(cc, v1 - v2)
 def neg(cc, v):
-    return cc.func(-v)
+    return apply_cc(cc, -v)
 def mul(cc, v1, v2):
-    return cc.func(v1 * v2)
+    return apply_cc(cc, v1 * v2)
 def div(cc, v1, v2):
-    return cc.func(v1 / v2)
+    return apply_cc(cc, v1 / v2)
 def quo(cc, v1, v2):
-    return cc.func(v1 // v2)
+    return apply_cc(cc, v1 // v2)
 def mod(cc, v1, v2):
-    return cc.func(v1 % v2)
+    return apply_cc(cc, v1 % v2)
 def isinstanceof(cc, obj, type):
-    return cc.func(isinstance(obj, type))
+    return apply_cc(cc, isinstance(obj, type))
 class Stream(object):
     def __init__(this, car, cdr):
         this.car = car
@@ -118,6 +130,7 @@ prims = {
     "set-attribute!": set_attribute,
     "apply": apply,
     "make-procedure": make_procedure,
+    "make-python-procedure": make_python_procedure,
     "vm-apply": vm_apply,
     "dynamic-require": dynamic_require,
     "closure?": isClosure,
@@ -163,7 +176,7 @@ def evalDatum(v, e):
 def evalLambda(arg_names, body, e):
     def func(*args):
         if len(arg_names) != len(args):
-            return LazyBox(lambda:SchemeException(f"<func>: arity mismatch(expected: {arg_names}; given: {args})"))
+            return LazyBox(lambda:SchemeException(f"evalLambda <func>: arity mismatch(expected: {arg_names}; given: {args})"))
         ne = extendEnv(e)
         for i in range(len(arg_names)):
             bindEnv(ne, arg_names[i], args[i])

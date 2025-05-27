@@ -6,7 +6,8 @@
   (extends L8)
   (terminals (+ (arity (ar))))
   (Expr (e body)
-        (+ (#%vm-procedure e ar))))
+        (+ (#%vm-procedure e ar)
+           (#%scm-procedure e ar))))
 
 (define (arity? v)
   (or (not v) (exact-integer? v)))
@@ -15,6 +16,7 @@
 
 (define (expand-vm code)
   (define mp-sym (gensym 'make-procedure))
+  (define mpp-sym (gensym 'make-python-procedure))
   (define va-sym (gensym 'vm-apply))
   (define ad-sym (gensym '<!))
   (define-pass L9->L8 :
@@ -36,10 +38,13 @@
                  `(let ((,v-sym ,e))
                     (,mp-sym
                      (lambda (,l-sym)
-                       (,va-sym ,v-sym ,l-sym)))))))))
+                       (,va-sym ,v-sym ,l-sym)))))))
+          ((#%scm-procedure ,[e] ,ar)
+           `(,mpp-sym ,e ,ar))))
   (L9->L8
    (parse-L9
     `(let ((,mp-sym make-procedure)
+           (,mpp-sym make-python-procedure)
            (,va-sym vm-apply)
            (,ad-sym <!))
        ,(unparse-L9 code)))))
