@@ -24,7 +24,7 @@ My Scheme2Python Compiler.
 
 @section{Syntax}
 
-@codeblock[#:keep-lang-line? #f]|{
+@codeblock[#:keep-lang-line? #f]{
 #:lang nanopass
 @(pretty-format #:mode 'write (language->s-expression L))
-}|
+}
