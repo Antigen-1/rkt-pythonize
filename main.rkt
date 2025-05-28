@@ -256,7 +256,7 @@
   ;; does not run when this file is required by another module. Documentation:
   ;; http://docs.racket-lang.org/guide/Module_Syntax.html#%28part._main-and-test%29
 
-  (require racket/cmdline racket/contract raco/command-name)
+  (require racket/cmdline racket/contract racket/match racket/list raco/command-name)
   (define dest (box #f))
   (define raw? (box #f))
   (command-line
@@ -265,18 +265,31 @@
     [("-o" "--output") o "Where to write generated python code" (set-box! dest o)]
     [("-r" "--raw") "Enable the compiler to generate raw json syntax tree" (set-box! raw? #t)]
     [("-c" "--core") "Display the core evaluator through standard output" (displayln py-lib-string)]
-    #:args (source)
-    (define/contract dest-path path-string? (unbox dest))
-    (define raw?-bool (unbox raw?))
-    (generate
-     #:raw? raw?-bool
-     (cons 'begin
-           (call-with-input-file
-             source
-             (lambda (in)
-               (let loop ()
-                 (define v (read in))
-                 (if (eof-object? v)
-                     null
-                     (cons v (loop)))))))
-     dest-path)))
+    #:ps
+    "If there is at least one source file provided, the path of the first source file will be used to automatically generate an output file path."
+    "This file path will be used if both `-o` and `--output` are omitted."
+    "If there is no source file provided, the compiler will do nothing."
+    #:args sources
+    (match sources
+      ((list source0 sources ...)
+       (define raw?-bool (unbox raw?))
+       (define/contract dest-path path-string?
+         (or (unbox dest) (path-replace-extension source0 (if raw?-bool ".json" ".py"))))
+       (generate
+        #:raw? raw?-bool
+        (cons 'begin
+              (append*
+               (map
+                (lambda (source)
+                  (call-with-input-file
+                    source
+                    (lambda (in)
+                      (let loop ()
+                        (define v (read in))
+                        (if (eof-object? v)
+                            null
+                            (cons v (loop)))))))
+                (cons source0 sources))))
+        dest-path))
+      (`()
+       (void)))))
