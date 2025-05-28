@@ -27,14 +27,15 @@
 
 (require "core/main.rkt" "passes/uniquify.rkt" "passes/explicit.rkt" "passes/cps.rkt" "passes/quote.rkt" "passes/let.rkt"
          "passes/named-let.rkt" "passes/cond.rkt" "passes/internal-begin.rkt" "passes/chain.rkt" "passes/vm.rkt"
-         "passes/stream.rkt")
-(provide (rename-out (L10 L)) primitives)
+         "passes/stream.rkt" "passes/more-cond.rkt" "passes/cond-explicit.rkt" "passes/simple-begin.rkt")
+(provide (rename-out (L12 L)) primitives)
 
 (define (generate code dest #:raw? (raw? #f))
   ((compose1
     (lambda (code) (generate-python-file code dest #:raw? raw?))
     cps
     uniquify
+    reduce-simple-begin-forms
     expand-internal-begin
     make-explicit
     add-quote
@@ -44,7 +45,9 @@
     expand-chain
     expand-vm
     expand-stream
-    parse-L10)
+    expand-more-cond
+    make-cond-explicit
+    parse-L12)
    code))
 
 (module+ test
@@ -258,6 +261,16 @@
            (stream-for-each print number-stream))
         "1\n2\n3\n4\n5\n6\n1\n2\n3\n4\n5\n6\n"
         )
+  ;; More cond
+  (test '(letrec ((print (#%vm-procedure (=> (dynamic-require "builtins" none) "print") 1)))
+           (cond (else (print 1)))
+           (cond (1 (print 1))
+                 (else (print 2)))
+           (cond (#f (print 1))
+                 (else (print 2)))
+           (cond (1 (print 1) (print 2))
+                 (else none)))
+        "1\n1\n2\n1\n2\n")
   )
 
 (module+ main
