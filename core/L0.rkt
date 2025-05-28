@@ -1,5 +1,5 @@
 #lang racket/base
-(require nanopass/base json)
+(require nanopass/base json racket/list)
 (provide L0 unparse-L0 parse-L0 render-L0 primitives)
 
 (define-language L0
@@ -68,6 +68,10 @@
                           'then (render-L0 e1)
                           'otherwise (render-L0 e2)))
                  ((lambda (,x* ...) ,body)
+                  (cond ((check-duplicates x* eq?)
+                         =>
+                         (lambda (sym)
+                           (raise-syntax-error 'lambda (format "Duplicate identifier ~a" sym)))))
                   (hasheq 'type "lambda"
                           'args (map symbol->string x*)
                           'body (render-L0 body)))
@@ -102,4 +106,5 @@
                 (hasheq 'type "lambda"
                         'args '("x")
                         'body (hasheq 'type "var"
-                                      'name "x"))))
+                                      'name "x")))
+  (check-exn exn:fail:syntax? (lambda () (render-L0 (parse-L0 '(lambda (x x) x))))))
