@@ -1,5 +1,5 @@
 #lang racket/base
-(require nanopass/base uuid "cps.rkt")
+(require nanopass/base uuid racket/list "cps.rkt")
 (provide L2 parse-L2 unparse-L2
          (rename-out (n:uniquify uniquify)))
 
@@ -32,6 +32,10 @@
            `(let/cc ,new-symbol
               ,(uniquify body (hash-set table x new-symbol))))
           ((lambda (,x* ...) ,body)
+           (cond ((check-duplicates x* eq?)
+                  =>
+                  (lambda (sym)
+                    (raise-syntax-error 'lambda (format "Duplicate identifier ~a" sym)))))
            (define new-symbols (map (lambda (x) (uuid-symbol)) x*))
            (define new-table
              (foldl (lambda (x new-sym table) (hash-set table x new-sym)) table x* new-symbols))
