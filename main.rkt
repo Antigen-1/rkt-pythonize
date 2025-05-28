@@ -262,7 +262,7 @@
   (command-line
     #:program (short-program+command-name)
     #:once-each
-    [("-o" "--output") o "Where to write generated python code" (set-box! dest o)]
+    [("-o" "--output") o "Where to write generated code" (set-box! dest o)]
     [("-r" "--raw") "Enable the compiler to generate raw json syntax tree" (set-box! raw? #t)]
     [("-c" "--core") "Display the core evaluator through standard output" (displayln py-lib-string)]
     #:ps
