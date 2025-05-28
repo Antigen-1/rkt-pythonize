@@ -160,7 +160,7 @@ def evalBegin(seq, e):
     return LazyBox(lambda:last_result)
 def evalIf(cond, then, otherwise, e):
     cond_v = runTrampoline(evalExpr(cond, e))
-    if cond_v == False:
+    if cond_v is False:
         return LazyBox(lambda:evalExpr(otherwise, e))
     else:
         return LazyBox(lambda:evalExpr(then, e))

@@ -52,18 +52,19 @@
   ;; or with `raco test`. The code here does not run when this file is
   ;; required by another module.
 
-  (define python-exe (find-executable-path "python"))
+  (define python-exe (or (find-executable-path "python3") (find-executable-path "python")))
   (define (test code output)
-    (pretty-write code)
-    (let ((temp (make-temporary-file)))
-      (generate code temp)
-      (check-equal?
-       (time
-        (with-output-to-string
-          (lambda ()
-            (check-true (system* python-exe temp)))))
-       output)
-      (delete-directory/files temp)))
+    (test-begin
+      (pretty-write code)
+      (let ((temp (make-temporary-file)))
+        (generate code temp)
+        (check-equal?
+         (time
+          (with-output-to-string
+            (lambda ()
+              (check-true (system* python-exe temp)))))
+         output)
+        (delete-directory/files temp))))
 
   ;; Uniquify
   (test '((lambda (mod)
@@ -176,6 +177,15 @@
              (print (or 2 #t))
              ))
         "True\nFalse\n1\n2\n")
+  (test '(let ((mod (dynamic-require "builtins" none)))
+           (let ((print (lambda (v)
+                          (let ((l '()))
+                            (<! l v)
+                            (vm-apply (get-attribute mod "print") l)))))
+             (if #t (print 1))
+             (print (if #f 1))
+             ))
+        "1\nNone\n")
   ;; Internal begin
   (test '(letrec ((mod (dynamic-require "builtins" none))
                   (print (lambda (v)
