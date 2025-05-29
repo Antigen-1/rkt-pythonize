@@ -112,6 +112,8 @@
   (test '2 "")
   (test '#f "")
   (test '"" "")
+  (test #hasheq{} "")
+  (test ''() "")
   ;; Let & Letrec
   (test '(let ((mod (dynamic-require "builtins" none)))
            (let ((print (get-attribute mod "print")))
@@ -315,8 +317,12 @@
                           '#hasheq{(x . 1)
                                    (y . 2)}))
            (print (equal? '(1) '#hasheq{(x . 1)}))
+           (print (if 1 1 2))
+           (print (if + 2 1))
+           (print (if #f 2 3))
+           (print (if (lambda (x) x) 4 5))
            )
-        "3\n0.5\n0.5\n0.0\n1.0\n-1.0\nTrue\nTrue\nTrue\nFalse\nFalse\nFalse\nTrue\nTrue\nFalse\nTrue\nFalse\nFalse\n")
+        "3\n0.5\n0.5\n0.0\n1.0\n-1.0\nTrue\nTrue\nTrue\nFalse\nFalse\nFalse\nTrue\nTrue\nFalse\nTrue\nFalse\nFalse\n1\n2\n3\n4\n")
   )
 
 (module+ main

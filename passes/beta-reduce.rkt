@@ -1,6 +1,7 @@
 #lang racket/base
 (require nanopass/base "cps.rkt")
-(provide L1 parse-L1 unparse-L1 beta-reduce)
+(provide L1 parse-L1 unparse-L1 beta-reduce
+         datum? primitive? variable? lambda? immediate?)
 
 (define (get-references expr id)
   (define cnt (box null))
@@ -52,7 +53,7 @@
 (define-pass beta-reduce :
   L1 (ir) -> L1 ()
   (Expr : Expr (ir) -> Expr ()
-        ((let/cc ,x ,e)
+        ((let/cc ,x ,[e])
          (if (= 0 (length (get-references e x)))
              `,e
              `(let/cc ,x ,e)))
