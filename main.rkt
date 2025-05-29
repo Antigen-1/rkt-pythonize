@@ -1,7 +1,7 @@
 #lang racket/base
 
 (module+ test
-  (require rackunit racket/port racket/system racket/file racket/pretty))
+  (require rackunit racket/system racket/file racket/pretty))
 
 ;; Notice
 ;; To install (from within the package directory):
@@ -27,13 +27,16 @@
 
 (require "core/main.rkt" "passes/uniquify.rkt" "passes/explicit.rkt" "passes/cps.rkt" "passes/quote.rkt" "passes/let.rkt"
          "passes/named-let.rkt" "passes/cond.rkt" "passes/internal-begin.rkt" "passes/chain.rkt" "passes/vm.rkt"
-         "passes/stream.rkt" "passes/more-cond.rkt" "passes/cond-explicit.rkt" "passes/simple-begin.rkt")
+         "passes/stream.rkt" "passes/more-cond.rkt" "passes/cond-explicit.rkt" "passes/simple-begin.rkt" "passes/beta-reduce.rkt"
+         "passes/partial-evaluate.rkt")
 (provide (rename-out (L12 L)) primitives)
 
 (define (generate code dest #:raw? (raw? #f))
   ((compose1
     (lambda (code) (generate-python-file code dest #:raw? raw?))
     cps
+    partial-evaluate
+    beta-reduce
     uniquify
     reduce-simple-begin-forms
     expand-internal-begin
@@ -60,12 +63,16 @@
     (test-begin
       (pretty-write code)
       (let ((temp (make-temporary-file)))
-        (generate code temp)
+        (displayln "Compilation:")
+        (time (generate code temp))
+        (displayln "Evaluation:")
         (check-equal?
-         (time
-          (with-output-to-string
-            (lambda ()
-              (check-true (system* python-exe temp)))))
+         (let ((out (open-output-string)))
+           (check-true
+            (time
+             (parameterize ((current-output-port out))
+               (system* python-exe temp))))
+           (get-output-string out))
          output)
         (delete-directory/files temp))))
 
@@ -271,6 +278,15 @@
            (cond (1 (print 1) (print 2))
                  (else none)))
         "1\n1\n2\n1\n2\n")
+  ;; Partial evaluation
+  (test '(letrec ((print (#%vm-procedure (=> (dynamic-require "builtins" none) "print") 1)))
+           (print (+ 1 2))
+           (print (/ 1 2.0))
+           (print (/ 1 2))
+           (print (quotient 1 2.0))
+           (print (modulo 1 2.0))
+           (print (negate 1.0)))
+        "3\n0.5\n0.5\n0.0\n1.0\n-1.0\n")
   )
 
 (module+ main

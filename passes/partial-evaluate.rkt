@@ -1,0 +1,45 @@
+#lang racket/base
+(require nanopass/base racket/match racket/case "cps.rkt")
+(provide partial-evaluate L1 parse-L1 unparse-L1)
+
+(define (json-number? v)
+  (or (exact-integer? v)
+      (and (inexact-real? v)
+           (rational? v))))
+
+(define-pass partial-evaluate :
+  L1 (ir) -> L1 ()
+  (Expr : Expr (ir) -> Expr ()
+        ((,pr ',d0 ',d1)
+         (match* (pr d0 d1)
+           (((and (or '+ '- '* '/ 'quotient 'modulo 'equal?) op)
+             (? json-number? num1)
+             (? json-number? num2))
+            `',((case/eq op
+                         ((+) +)
+                         ((-) -)
+                         ((*) *)
+                         ((/) (lambda (v1 v2)
+                                (if (and (exact-integer? v1)
+                                         (exact-integer? v2)
+                                         (= (modulo v1 v2) 0))
+                                    (/ v1 v2)
+                                    ; JSON does not support exact rationals
+                                    (exact->inexact (/ v1 v2)))
+                                ))
+                         ((quotient) quotient)
+                         ((modulo) modulo)
+                         ((equal?) =))
+                num1
+                num2))
+           ((op d0 d1)
+            `(,op ',d0 ',d1))))
+        ((,pr ',d)
+         (match* (pr d)
+           (((and (or 'negate) op)
+             (? json-number? num))
+            `',((case/eq op
+                         ((negate) -))
+                num))
+           ((op d)
+            `(,op ',d))))))

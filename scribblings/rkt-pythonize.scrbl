@@ -21,6 +21,8 @@ My Scheme2Python Compiler.
 @item{@racket[let/cc]}
 @item{TCO(Tail-Call Optimization)}
 @item{Stream}
+@item{Inlining}
+@item{Partial evaluation}
 ]
 
 @section{Syntax}
