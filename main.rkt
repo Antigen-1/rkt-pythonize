@@ -130,7 +130,7 @@
                                (proc))))))
                (proc))))
         "1\n-1\n")
-  ;; Ref & Set
+  ;; Ref & Set & Has
   (test '(let ((mod (dynamic-require "builtins" none)))
            (let ((print (get-attribute mod "print")))
              (vm-apply print (@ '(("1")) 0))))
@@ -151,6 +151,13 @@
              (! t "a" '(2))
              (vm-apply print (@ t "a"))))
         "2\n")
+  (test '(let ((mod (dynamic-require "builtins" none)))
+           (let ((print (get-attribute mod "print"))
+                 (t '#hasheq((a . (1))))
+                 (l '()))
+             (<! l (? t "a"))
+             (vm-apply print l)))
+        "True\n")
   ;; Fibonacci
   (test '(let ((mod (dynamic-require "builtins" none)))
            (let ((print
@@ -293,6 +300,8 @@
            (print (quotient 1 2.0))
            (print (modulo 1 2.0))
            (print (negate 1.0))
+           (print (eq? none 'none))
+           (print (eq? 'none 'none))
            (print (eq? "a" ,(string #\a)))
            (print (eq? 1 1.0))
            (print (eq? '(1) '(1)))
@@ -307,7 +316,7 @@
                                    (y . 2)}))
            (print (equal? '(1) '#hasheq{(x . 1)}))
            )
-        "3\n0.5\n0.5\n0.0\n1.0\n-1.0\nTrue\nFalse\nFalse\nFalse\nTrue\nTrue\nFalse\nTrue\nFalse\nFalse\n")
+        "3\n0.5\n0.5\n0.0\n1.0\n-1.0\nTrue\nTrue\nTrue\nFalse\nFalse\nFalse\nTrue\nTrue\nFalse\nTrue\nFalse\nFalse\n")
   )
 
 (module+ main

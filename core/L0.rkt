@@ -22,7 +22,7 @@
                      dynamic-require
                      get-attribute set-attribute!
                      none
-                     ! @ <! length
+                     ! @ ? <! length
                      not
                      equal? eq?
                      + - * / quotient modulo negate

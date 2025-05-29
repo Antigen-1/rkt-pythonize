@@ -78,6 +78,8 @@ def ref(cc, obj, ind):
 def set(cc, obj, ind, val):
     obj[ind] = val
     return apply_cc(cc, None)
+def has(cc, container, v):
+    return apply_cc(cc, v in container)
 def append(cc, arr, obj):
     arr.append(obj)
     return apply_cc(cc, None)
@@ -114,6 +116,7 @@ object_type = object
 prims = {
     "@": ref,
     "!": set,
+    "?": has,
     "<!": append,
     "length": length,
     "not": _not,
