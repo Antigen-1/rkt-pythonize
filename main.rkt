@@ -279,14 +279,28 @@
                  (else none)))
         "1\n1\n2\n1\n2\n")
   ;; Partial evaluation
-  (test '(letrec ((print (#%vm-procedure (=> (dynamic-require "builtins" none) "print") 1)))
+  (test `(letrec ((print (#%vm-procedure (=> (dynamic-require "builtins" none) "print") 1)))
            (print (+ 1 2))
            (print (/ 1 2.0))
            (print (/ 1 2))
            (print (quotient 1 2.0))
            (print (modulo 1 2.0))
-           (print (negate 1.0)))
-        "3\n0.5\n0.5\n0.0\n1.0\n-1.0\n")
+           (print (negate 1.0))
+           (print (eq? "a" ,(string #\a)))
+           (print (eq? 1 1.0))
+           (print (eq? '(1) '(1)))
+           (print (eq? '#hasheq{} '#hasheq{}))
+           (print (equal? 1 1.0))
+           (print (equal? '(1) '(1)))
+           (print (equal? '(1) '(1 2)))
+           (print (equal? '#hasheq{(x . 1)}
+                          '#hasheq{(x . 1)}))
+           (print (equal? '#hasheq{(x . 1)}
+                          '#hasheq{(x . 1)
+                                   (y . 2)}))
+           (print (equal? '(1) '#hasheq{(x . 1)}))
+           )
+        "3\n0.5\n0.5\n0.0\n1.0\n-1.0\nTrue\nFalse\nFalse\nFalse\nTrue\nTrue\nFalse\nTrue\nFalse\nFalse\n")
   )
 
 (module+ main
