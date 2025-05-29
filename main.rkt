@@ -101,6 +101,13 @@
                (get-attribute mod '"print")))
             (dynamic-require '"builtins" none)))
         "1\n2\n")
+  (test '(let/cc cc
+           ((lambda (mod)
+              ((lambda (print)
+                 (vm-apply print '("1")))
+               (get-attribute mod '"print")))
+            (dynamic-require '"builtins" none)))
+        "1\n")
   ;; Quote
   (test '2 "")
   (test '#f "")

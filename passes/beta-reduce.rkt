@@ -37,6 +37,10 @@
 (define-pass beta-reduce :
   L1 (ir) -> L1 ()
   (Expr : Expr (ir) -> Expr ()
+        ((let/cc ,x ,e)
+         (if (= 0 (length (get-references e x)))
+             `,e
+             `(let/cc ,x ,e)))
         (((lambda (,x* ...)
             ,[e])
           ,[e*] ...)
