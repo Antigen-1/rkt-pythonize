@@ -1,6 +1,7 @@
 #lang racket/base
 (require nanopass/base racket/match racket/case "cps.rkt")
-(provide partial-evaluate L1 parse-L1 unparse-L1)
+(provide partial-evaluate L1 parse-L1 unparse-L1
+         json-number? json-equal? json-eq?)
 
 (define (json-number? v)
   (or (exact-integer? v)

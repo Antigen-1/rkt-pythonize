@@ -26,13 +26,28 @@
                   `,val
                   `,x))))
   (helper expr))
-(define (immediate? expr)
+(define (primitive? expr)
+  (nanopass-case (L1 Expr) expr
+                 (,pr #t)
+                 (else #f)))
+(define (variable? expr)
   (nanopass-case (L1 Expr) expr
                  (,x #t)
-                 (,pr #t)
-                 (',d #t)
-                 ((lambda (,x* ...) ,e) #t)
                  (else #f)))
+(define (datum? expr)
+  (nanopass-case (L1 Expr) expr
+                 (',d #t)
+                 (else #f)))
+(define (lambda? expr)
+  (nanopass-case (L1 Expr) expr
+                 ((lambda (,x* ...) ,e)
+                  #t)
+                 (else #f)))
+(define (immediate? expr)
+  (or (primitive? expr)
+      (variable? expr)
+      (datum? expr)
+      (lambda? expr)))
 
 (define-pass beta-reduce :
   L1 (ir) -> L1 ()
@@ -60,9 +75,16 @@
                       ;; Replace identifers that are not assigned using set! with their values
                       (ntable (foldr
                                (lambda (x u e t)
-                                 (if (and (not (memq 'set u))
-                                          (= (length u) 1)
-                                          (immediate? e))
+                                 (if (or
+                                      ;; Primitives cannot be assigned
+                                      ;; Primitives and variables respectively refer to one single object when there is no assignment
+                                      (primitive? e)
+                                      (and (not (memq 'set u))
+                                           (variable? e))
+                                      (and (not (memq 'set u))
+                                           (= (length u) 1)
+                                           (or (datum? e)
+                                               (lambda? e))))
                                      (cons (replace-id-with (car t) x e)
                                            (cdr t))
                                      (cons (car t) (cons (list x u e) (cdr t)))))

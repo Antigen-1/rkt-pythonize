@@ -1,5 +1,5 @@
 #lang racket/base
-(require nanopass/base "explicit.rkt")
+(require nanopass/base json "explicit.rkt" "partial-evaluate.rkt")
 (provide parse-L4 unparse-L4 L4 add-quote)
 
 (define-language L4
@@ -11,9 +11,9 @@
 (define constant?
   (lambda (v)
     (or (string? v)
-        (fixnum? v)
-        (flonum? v)
-        (boolean? v))))
+        (json-number? v)
+        (boolean? v)
+        (and (hash? v) (jsexpr? v #:null 'none)))))
 
 (define-parser parse-L4 L4)
 

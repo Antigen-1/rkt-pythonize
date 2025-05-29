@@ -14,32 +14,26 @@
 
 (define-parser parse-L7 L7)
 
-(define (expand-cond code)
-  (define none-sym (gensym 'none))
-  (define-pass L7->L6 :
-    L7 (ir) -> L6 ()
-    (Expr : Expr (ir) -> Expr ()
-          ((and) #t)
-          ((and ,[e*] ... ,[e0])
-           (foldr (lambda (e b)
-                    (define v (gensym))
-                    `(let ((,v ,e))
-                       (if ,v
-                           ,b
-                           #f)))
-                  e0 e*))
-          ((or) #f)
-          ((or ,[e*] ... ,[e0])
-           (foldr (lambda (e b)
-                    (define v (gensym))
-                    `(let ((,v ,e))
-                       (if ,v
-                           ,v
-                           ,b)))
-                  e0 e*))
-          ((if ,[e0] ,[e1])
-           `(if ,e0 ,e1 ,none-sym))))
-  (L7->L6
-   (parse-L7
-    `(let ((,none-sym none))
-       ,(unparse-L7 code)))))
+(define-pass expand-cond :
+  L7 (ir) -> L6 ()
+  (Expr : Expr (ir) -> Expr ()
+        ((and) #t)
+        ((and ,[e*] ... ,[e0])
+         (foldr (lambda (e b)
+                  (define v (gensym))
+                  `(let ((,v ,e))
+                     (if ,v
+                         ,b
+                         #f)))
+                e0 e*))
+        ((or) #f)
+        ((or ,[e*] ... ,[e0])
+         (foldr (lambda (e b)
+                  (define v (gensym))
+                  `(let ((,v ,e))
+                     (if ,v
+                         ,v
+                         ,b)))
+                e0 e*))
+        ((if ,[e0] ,[e1])
+         `(if ,e0 ,e1 'none))))
