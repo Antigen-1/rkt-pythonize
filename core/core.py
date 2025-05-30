@@ -7,32 +7,33 @@ class SchemeException(Exception):
 
 # Evironment representation
 def makeEnv():
-    return []
-def extendEnv(e):
-    return [{}] + e
+    return {}
+def extendEnv(e, free):
+    ne = {}
+    for var in free:
+        if var in e:
+            ne[var] = e[var]
+        else:
+            return SchemeException(f"extendEnv: there is no variable called {var}")
+    return ne
 def setEnv(e, k, v):
-    exists = False
-    for frame in e:
-        if k in frame:
-            exists = True
-            frame[k] = v
-
-    if not exists:
+    if k in e:
+        e[k][0] = v
+    else:
         return SchemeException(f"setEnv: there is no variable called {k}")
 
     return None
 def bindEnv(e, k, v):
-    first = e[0]
-    if k in first:
+    if k in e:
         return SchemeException(f"bindEnv: there has been a variable called {k}")
-    first[k] = v
-    return None
+    else:
+        e[k] = [v]
+        return None
 def refEnv(e, k):
-    for frame in e:
-        if k in frame:
-            return frame[k]
-
-    return SchemeException(f"refEnv: there is no variable called {k}")
+    if k in e:
+        return e[k][0]
+    else:
+        return SchemeException(f"refEnv: there is no variable called {k}")
 
 # Closure
 class Closure(object):
@@ -176,11 +177,13 @@ def evalPrim(prim, e):
 def evalDatum(v, e):
     # Avoid mutating objects in the abstract syntax tree
     return LazyBox(lambda:copy.deepcopy(v))
-def evalLambda(arg_names, body, e):
+def evalLambda(arg_names, body, free, e):
     def func(*args):
         if len(arg_names) != len(args):
             return LazyBox(lambda:SchemeException(f"evalLambda <func>: arity mismatch(expected: {arg_names}; given: {args})"))
-        ne = extendEnv(e)
+        ne = extendEnv(e, free)
+        if isinstance(ne, SchemeException):
+            return LazyBox(lambda:ne)
         for i in range(len(arg_names)):
             bindEnv(ne, arg_names[i], args[i])
         return LazyBox(lambda:evalExpr(body, ne))
@@ -211,7 +214,7 @@ def evalExpr(expr, e):
     elif etype == "datum":
         return evalDatum(expr["value"], e)
     elif etype == "lambda":
-        return evalLambda(expr["args"], expr["body"], e)
+        return evalLambda(expr["args"], expr["body"], expr["free"], e)
     elif etype == "app":
         return evalApp(expr["func"], expr["args"], e)
     else:

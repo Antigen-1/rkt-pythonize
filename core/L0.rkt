@@ -1,5 +1,5 @@
 #lang racket/base
-(require nanopass/base json racket/list)
+(require nanopass/base json racket/list racket/set)
 (provide L0 unparse-L0 parse-L0 render-L0 primitives)
 
 (define-language L0
@@ -51,6 +51,25 @@
      (unparse-L0 (parse-L0 form))))
   )
 
+(define (free-variables e)
+  (nanopass-case (L0 Expr) e
+                 ((lambda (,x* ...)
+                    ,e)
+                  (set-subtract (free-variables e) (apply seteq x*)))
+                 (,pr (seteq))
+                 (,x (seteq x))
+                 (',d (seteq))
+                 ((begin ,body* ...)
+                  (apply set-union (map free-variables body*)))
+                 ((if ,e0 ,e1 ,e2)
+                  (set-union (free-variables e0)
+                             (free-variables e1)
+                             (free-variables e2)))
+                 ((set! ,x ,e)
+                  (set-add (free-variables e) x))
+                 ((,e0 ,e* ...)
+                  (apply set-union (map free-variables (cons e0 e*))))))
+
 (define (render-L0 ast)
   (nanopass-case (L0 Expr) ast
                  (,pr (hasheq 'type "prim"
@@ -74,6 +93,7 @@
                            (raise-syntax-error 'lambda (format "Duplicate identifier ~a" sym)))))
                   (hasheq 'type "lambda"
                           'args (map symbol->string x*)
+                          'free (map symbol->string (set->list (set-subtract (free-variables body) (apply seteq x*))))
                           'body (render-L0 body)))
                  ((set! ,x ,e)
                   (hasheq 'type "set!"
@@ -105,6 +125,7 @@
   (check-equal? (render-L0 (parse-L0 '(lambda (x) x)))
                 (hasheq 'type "lambda"
                         'args '("x")
+                        'free '()
                         'body (hasheq 'type "var"
                                       'name "x")))
   (check-exn exn:fail:syntax? (lambda () (render-L0 (parse-L0 '(lambda (x x) x))))))
