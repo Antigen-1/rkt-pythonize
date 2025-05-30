@@ -19,26 +19,20 @@
     (Expr : Expr (ir) -> Expr ()
           ((stream-cons ,[e0] ,[e1])
            (define result-sym (gensym 'result))
-           (define set?-sym (gensym 'set?))
-           `(,make-stream-sym
-             (let ((,result-sym #f)
-                   (,set?-sym #f))
-               (lambda ()
-                 (if ,set?-sym
-                     ,result-sym
-                     (begin
-                       (set! ,result-sym ,e0)
-                       (set! ,set?-sym #t)
-                       ,result-sym))))
-             (let ((,result-sym #f)
-                   (,set?-sym #f))
-               (lambda ()
-                 (if ,set?-sym
-                     ,result-sym
-                     (begin
-                       (set! ,result-sym ,e1)
-                       (set! ,set?-sym #t)
-                       ,result-sym))))))
+           (define stream-sym (gensym 'stream))
+           `(letrec ((,stream-sym
+                      (,make-stream-sym
+                       (let ((,result-sym 'none))
+                         (lambda ()
+                           (set! ,result-sym ,e0)
+                           (=>! ,stream-sym "car" (lambda () ,result-sym))
+                           ,result-sym))
+                       (let ((,result-sym 'none))
+                         (lambda ()
+                           (set! ,result-sym ,e1)
+                           (=>! ,stream-sym "cdr" (lambda () ,result-sym))
+                           ,result-sym)))))
+              ,stream-sym))
           ((stream-car ,[e])
            `((,get-car-sym ,e)))
           ((stream-cdr ,[e])
