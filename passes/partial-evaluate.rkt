@@ -41,6 +41,10 @@
 (define-pass partial-evaluate :
   L1 (ir) -> L1 ()
   (Expr : Expr (ir) -> Expr ()
+        ((set! ,x0 ,x1)
+         (if (eq? x0 x1)
+             `','none
+             `(set! ,x0 ,x1)))
         ((if ,[e0] ,[e1] ,[e2])
          (if (or (datum? e0) (primitive? e0) (lambda? e0))
              (if (nanopass-case (L1 Expr) e0
@@ -82,6 +86,19 @@
                                 d0 d1))
                            ((op d0 d1)
                             `(,op ',d0 ',d1))))
+                        ((,pr ,e ',d)
+                         (case/eq
+                          pr
+                          ((apply)
+                           (if (list? d)
+                               `(,e ,(map (lambda (sd) `',sd) d) ...)
+                               `(,pr ,e ',d)))
+                          (else `(,pr ,e ',d))))
+                        ((,pr1 ,e ,pr2)
+                         (case (list pr1 pr2)
+                           (((is-a? object-type))
+                            `(begin ,e '#t))
+                           (else `(,pr1 ,e ,pr2))))
                         (else `(,e0 ,e1 ,e2))))
         ((,[e0] ,[e1])
          (nanopass-case (L1 Expr) `(,e0 ,e1)
@@ -94,4 +111,13 @@
                                 num))
                            ((op d)
                             `(,op ',d))))
+                        ((,pr ,e)
+                         (case/eq
+                          pr
+                          ((not)
+                           (nanopass-case (L1 Expr) e
+                                          (,pr `',#f)
+                                          (',d `',(not d))
+                                          (else `(,pr ,e))))
+                          (else `(,pr ,e))))
                         (else `(,e0 ,e1))))))

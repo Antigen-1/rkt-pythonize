@@ -1,0 +1,28 @@
+#lang racket/base
+(require nanopass/base "../core/main.rkt" uuid racket/list)
+(provide L0 parse-L0 unparse-L0 L0-uniquify)
+
+(define (L0-uniquify code (env (hasheq)))
+  (define-pass helper :
+    L0 (ir) -> L0 ()
+    (Expr : Expr (ir) -> Expr ()
+          ((lambda (,x* ...) ,body)
+           (cond ((check-duplicates x* eq?)
+                  =>
+                  (lambda (sym) (raise-syntax-error
+                                 'lambda
+                                 "Duplicate identifier ~a"
+                                 sym))))
+           (define rx* (build-list (length x*) (lambda (_) (uuid-symbol))))
+           (define nenv
+             (foldl
+              (lambda (x rx env)
+                (hash-set env x rx))
+              env
+              x* rx*))
+           `(lambda (,rx* ...) ,(L0-uniquify body nenv)))
+          ((set! ,x ,[e])
+           `(set! ,(hash-ref env x x) ,e))
+          (,x `,(hash-ref env x x))
+          ))
+  (helper code))

@@ -28,12 +28,13 @@
 (require "core/main.rkt" "passes/uniquify.rkt" "passes/explicit.rkt" "passes/cps.rkt" "passes/quote.rkt" "passes/let.rkt"
          "passes/named-let.rkt" "passes/cond.rkt" "passes/internal-begin.rkt" "passes/chain.rkt" "passes/vm.rkt"
          "passes/stream.rkt" "passes/more-cond.rkt" "passes/cond-explicit.rkt" "passes/simple-begin.rkt" "passes/beta-reduce.rkt"
-         "passes/partial-evaluate.rkt")
+         "passes/partial-evaluate.rkt" "passes/L0-uniquify.rkt")
 (provide (rename-out (L12 L)) primitives)
 
 (define (generate code dest #:raw? (raw? #f))
   ((compose1
     (lambda (code) (generate-python-file code dest #:raw? raw?))
+    L0-uniquify
     cps
     partial-evaluate
     beta-reduce
@@ -108,6 +109,7 @@
                (get-attribute mod '"print")))
             (dynamic-require '"builtins" none)))
         "1\n")
+  (test '(let/cc cc cc) "")
   ;; Quote
   (test '2 "")
   (test '#f "")
@@ -321,8 +323,12 @@
            (print (if + 2 1))
            (print (if #f 2 3))
            (print (if (lambda (x) x) 4 5))
+           (apply print '("1"))
+           (print (is-a? 1 object-type))
+           (print (not dynamic-require))
+           (print (not #t))
            )
-        "3\n0.5\n0.5\n0.0\n1.0\n-1.0\nTrue\nTrue\nTrue\nFalse\nFalse\nFalse\nTrue\nTrue\nFalse\nTrue\nFalse\nFalse\n1\n2\n3\n4\n")
+        "3\n0.5\n0.5\n0.0\n1.0\n-1.0\nTrue\nTrue\nTrue\nFalse\nFalse\nFalse\nTrue\nTrue\nFalse\nTrue\nFalse\nFalse\n1\n2\n3\n4\n1\nTrue\nFalse\nFalse\n")
   )
 
 (module+ main
