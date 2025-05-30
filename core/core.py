@@ -1,14 +1,16 @@
 import importlib
 import json
 import copy
+import typing
 
 class SchemeException(Exception):
     pass
 
 # Evironment representation
-def makeEnv():
+Env = typing.Dict[str, list]
+def makeEnv() -> Env:
     return {}
-def extendEnv(e, free):
+def extendEnv(e: Env, free: typing.List[str]) -> typing.Union[Env, SchemeException]:
     ne = {}
     for var in free:
         if var in e:
@@ -16,20 +18,20 @@ def extendEnv(e, free):
         else:
             return SchemeException(f"extendEnv: there is no variable called {var}")
     return ne
-def setEnv(e, k, v):
+def setEnv(e: Env, k: str, v):
     if k in e:
         e[k][0] = v
     else:
         return SchemeException(f"setEnv: there is no variable called {k}")
 
     return None
-def bindEnv(e, k, v):
+def bindEnv(e: Env, k: str, v):
     if k in e:
         return SchemeException(f"bindEnv: there has been a variable called {k}")
     else:
         e[k] = [v]
         return None
-def refEnv(e, k):
+def refEnv(e: Env, k:str):
     if k in e:
         return e[k][0]
     else:
@@ -39,13 +41,12 @@ def refEnv(e, k):
 class Closure(object):
     def __init__(this, func):
         this.func = func
+    def __call__(this, *args):
+        return this.func(*args)
 
 # Utilities
 def apply_cc(cc, v):
-    if isinstance(cc, Closure):
-        return cc.func(v)
-    else:
-        return cc(v)
+    return cc(v)
 
 # Primitives
 def get_attribute(cc, obj, name):
@@ -56,10 +57,7 @@ def set_attribute(cc, obj, name, value):
 def vm_apply(cc, proc, args):
     return apply_cc(cc, proc(*args))
 def apply(cc, proc, args):
-    if isinstance(proc, Closure):
-        return proc.func(cc, *args)
-    else:
-        return proc(cc, *args)
+    return proc(cc, *args)
 def make_procedure(cc, proc):
     def func(cc, *args):
         return apply(cc, proc, [args])
@@ -148,36 +146,38 @@ prims = {
 class LazyBox(object):
     def __init__(this, func):
         this.func = func
+    def __call__(this):
+        return this.func()
 def runTrampoline(b):
     r = b
     while isinstance(r, LazyBox):
-        r = r.func()
+        r = r()
         if isinstance(r, SchemeException):
             raise r
     return r
 
 # Evaluator
-def evalBegin(seq, e):
+def evalBegin(seq, e: Env) -> LazyBox:
     last_result = none
     for expr in seq:
         last_result = runTrampoline(evalExpr(expr, e))
     return LazyBox(lambda:last_result)
-def evalIf(cond, then, otherwise, e):
+def evalIf(cond, then, otherwise, e: Env) -> LazyBox:
     cond_v = runTrampoline(evalExpr(cond, e))
     if cond_v is False:
         return LazyBox(lambda:evalExpr(otherwise, e))
     else:
         return LazyBox(lambda:evalExpr(then, e))
-def evalSet(var, value, e):
+def evalSet(var: str, value, e: Env) -> LazyBox:
     return LazyBox(lambda:setEnv(e, var, runTrampoline(evalExpr(value, e))))
-def evalVar(var, e):
+def evalVar(var: str, e: Env) -> LazyBox:
     return LazyBox(lambda:refEnv(e, var))
-def evalPrim(prim, e):
+def evalPrim(prim, e: Env) -> LazyBox:
     return LazyBox(lambda:prims[prim])
-def evalDatum(v, e):
+def evalDatum(v, e: Env) -> LazyBox:
     # Avoid mutating objects in the abstract syntax tree
     return LazyBox(lambda:copy.deepcopy(v))
-def evalLambda(arg_names, body, free, e):
+def evalLambda(arg_names: typing.List[str], body, free: typing.List[str], e: Env) -> LazyBox:
     def func(*args):
         if len(arg_names) != len(args):
             return LazyBox(lambda:SchemeException(f"evalLambda <func>: arity mismatch(expected: {arg_names}; given: {args})"))
@@ -188,16 +188,13 @@ def evalLambda(arg_names, body, free, e):
             bindEnv(ne, arg_names[i], args[i])
         return LazyBox(lambda:evalExpr(body, ne))
     return LazyBox(lambda:Closure(func))
-def evalApp(func, args, e):
+def evalApp(func, args, e: Env) -> LazyBox:
     func_v = runTrampoline(evalExpr(func, e))
     args_l = []
     for arg in args:
         args_l.append(runTrampoline(evalExpr(arg, e)))
-    if isinstance(func_v, Closure):
-        return LazyBox(lambda:func_v.func(*args_l))
-    else:
-        return LazyBox(lambda:func_v(*args_l))
-def evalExpr(expr, e):
+    return LazyBox(lambda:func_v(*args_l))
+def evalExpr(expr, e: Env) -> LazyBox:
     if not "type" in expr:
         return LazyBox(lambda:SchemeException(f"evalExpr: expects an AST, given {expr}"))
     etype = expr["type"]
