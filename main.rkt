@@ -28,12 +28,17 @@
 (require "core/main.rkt" "passes/uniquify.rkt" "passes/explicit.rkt" "passes/cps.rkt" "passes/quote.rkt" "passes/let.rkt"
          "passes/named-let.rkt" "passes/cond.rkt" "passes/internal-begin.rkt" "passes/chain.rkt" "passes/vm.rkt"
          "passes/stream.rkt" "passes/more-cond.rkt" "passes/cond-explicit.rkt" "passes/simple-begin.rkt" "passes/beta-reduce.rkt"
-         "passes/partial-evaluate.rkt" "passes/L0-uniquify.rkt")
-(provide (rename-out (L12 L)) primitives)
+         "passes/partial-evaluate.rkt" "passes/L0-uniquify.rkt"
+         racket/contract)
+(provide (rename-out (L12 L)) primitives
+         (contract-out (rename compile compile-L
+                               (->* (any/c path-string?)
+                                    (#:raw? boolean?)
+                                    any))))
 
-(define (generate code dest #:raw? (raw? #f))
+(define (compile code dest #:raw? (raw? #f))
   ((compose1
-    (lambda (code) (generate-python-file code dest #:raw? raw?))
+    (lambda (code) (compile-L0 code dest #:raw? raw?))
     L0-uniquify
     cps
     partial-evaluate
@@ -65,7 +70,7 @@
       (pretty-write code)
       (let ((temp (make-temporary-file)))
         (displayln "Compilation:")
-        (time (generate code temp))
+        (time (compile code temp))
         (displayln "Evaluation:")
         (check-equal?
          (let ((out (open-output-string)))
@@ -356,7 +361,7 @@
        (define raw?-bool (unbox raw?))
        (define/contract dest-path path-string?
          (or (unbox dest) (path-replace-extension source0 (if raw?-bool ".json" ".py"))))
-       (generate
+       (compile
         #:raw? raw?-bool
         (cons 'begin
               (append*

@@ -35,3 +35,7 @@ My Scheme2Python Compiler.
 @section{Primitives}
 
 @code{@(pretty-format #:mode 'write (list 'quote primitives))}
+
+@section{Functions}
+
+@defproc[#:kind "compiler" (compile-L (code any/c) (dest path-string?) (#:raw? raw? boolean? #f)) any]
