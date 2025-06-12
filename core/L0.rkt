@@ -27,6 +27,7 @@
                      equal? eq?
                      + - * / quotient modulo negate
                      is-a? object-type stream-type
+                     Var If Begin Lambda Set! App Datum Prim eval gensym expr-type
                      ))
 
 (define variable?
