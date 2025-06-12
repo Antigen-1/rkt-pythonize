@@ -18,7 +18,7 @@
     (e0 e* ...)))
 
 (define primitives '(
-                     apply make-procedure make-python-procedure closure? vm-apply
+                     apply make-procedure make-python-procedure vm-apply
                      dynamic-require
                      get-attribute set-attribute!
                      none
