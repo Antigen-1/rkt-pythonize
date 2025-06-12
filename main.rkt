@@ -334,6 +334,31 @@
            (print (not #t))
            )
         "3\n0.5\n0.5\n0.0\n1.0\n-1.0\nTrue\nTrue\nTrue\nFalse\nFalse\nFalse\nTrue\nTrue\nFalse\nTrue\nFalse\nFalse\n1\n2\n3\n4\n1\nTrue\nFalse\nFalse\n")
+  ;; Benchmark
+  (test '(letrec ((builtin (dynamic-require "builtins" none))
+                  (print (#%vm-procedure (=> builtin "print") 1))
+                  (stream-filter (lambda (p s)
+                                   (if (equal? s none)
+                                       none
+                                       (let ((f (stream-car s)))
+                                         (if (p f)
+                                             (stream-cons f (stream-filter p (stream-cdr s)))
+                                             (stream-filter p (stream-cdr s)))))))
+                  (numbers (let loop ((n 2))
+                             (stream-cons n (loop (+ n 1)))))
+                  (primes (let loop ((ns numbers))
+                            (let ((first (stream-car ns))
+                                  (rest (stream-cdr ns)))
+                              (stream-cons first
+                                           (loop (stream-filter
+                                                  (lambda (n)
+                                                    (not (equal? (modulo n first) 0)))
+                                                  rest)))))))
+           (let loop ((n 300) (ps primes))
+             (if (equal? n 0)
+                 (print (stream-car ps))
+                 (loop (- n 1) (stream-cdr ps)))))
+        "1993\n")
   )
 
 (module+ main
