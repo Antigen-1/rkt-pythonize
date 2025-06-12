@@ -9,9 +9,10 @@ class SchemeException(Exception):
 
 # Environment representation
 Env = typing.Dict[str, list]
+Seq = collections.abc.Sequence
 def makeEnv() -> Env:
     return {}
-def extendEnv(e: Env, free: typing.List[str]) -> typing.Union[SchemeException, Env]:
+def extendEnv(e: Env, free: Seq[str]) -> typing.Union[SchemeException, Env]:
     ne = {}
     for var in free:
         if var in e:
@@ -26,7 +27,7 @@ def setEnv(e: Env, k: str, v):
         return SchemeException(f"setEnv: there is no variable called {k}")
 
     return None
-def bindEnv(e: Env, ks: typing.List[str], vs: list) -> typing.Union[SchemeException, Env]:
+def bindEnv(e: Env, ks: Seq[str], vs: Seq) -> typing.Union[SchemeException, Env]:
     if len(ks) != len(vs):
        return SchemeException(f"bindEnv: given {len(ks)} key(s) and {len(vs)} value(s)")
     for i in range(0, len(ks)):
@@ -104,9 +105,9 @@ def mod(cc, v1, v2):
 def isinstanceof(cc, obj, type):
     return apply_cc(cc, isinstance(obj, type))
 class Stream(object):
-    def __init__(this, car, cdr):
-        this.car = car
-        this.cdr = cdr
+    def __init__(self, car, cdr):
+        self.car = car
+        self.cdr = cdr
 none = None
 object_type = object
 prims = {
@@ -140,10 +141,10 @@ prims = {
 
 # Trampoline
 class LazyBox(object):
-    def __init__(this, func: collections.abc.Callable[[], typing.Any]):
-        this.func = func
-    def __call__(this):
-        return this.func()
+    def __init__(self, func: collections.abc.Callable[[], typing.Any]):
+        self.func = func
+    def __call__(self):
+        return self.func()
 def runTrampoline(b):
     r = b
     while isinstance(r, LazyBox):
@@ -175,7 +176,7 @@ def evalPrim(prim, e: Env):
 def evalDatum(v, e: Env):
     # Avoid mutating objects in the abstract syntax tree
     return copy.deepcopy(v)
-def evalLambda(arg_names: typing.List[str], body, free: typing.List[str], e: Env):
+def evalLambda(arg_names: Seq[str], body, free: Seq[str], e: Env):
     def func(*args):
         if len(args) != len(arg_names):
            return SchemeException(f"evalLambda <func>: arity mismatch(Expected {len(arg_names)} argument(s); Given {args})")
@@ -194,7 +195,7 @@ def evalApp(func, args, e: Env) -> LazyBox:
     for arg in args:
         args_l.append(runTrampoline(evalExpr(arg, e)))
     return LazyBox(lambda:func_v(*args_l))
-def evalExpr(expr, e: Env) -> LazyBox:
+def evalExpr(expr, e: Env) -> typing.Union[LazyBox, typing.Any]:
     if not "type" in expr:
         return SchemeException(f"evalExpr: expects an AST, given {expr}")
     etype = expr["type"]
