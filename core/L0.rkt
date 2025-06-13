@@ -36,7 +36,7 @@
     (and (symbol? v) (not (primitive? v)))))
 (define primitive?
   (lambda (v)
-    (memq v primitives)))
+    (memq v (current-primitives))))
 (define datum?
   (lambda (v)
     (jsexpr? v #:null 'none)))
@@ -130,4 +130,8 @@
                         'free '()
                         'body (hasheq 'type "var"
                                       'name "x")))
+  (check-equal? (parameterize ((current-primitives '(a)))
+                  (render-L0 (parse-L0 'a)))
+                (hasheq 'type "prim"
+                        'name "a"))
   (check-exn exn:fail:syntax? (lambda () (render-L0 (parse-L0 '(lambda (x x) x))))))
