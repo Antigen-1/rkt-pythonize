@@ -1,6 +1,6 @@
 #lang racket/base
-(require nanopass/base json racket/list racket/set)
-(provide L0 unparse-L0 parse-L0 render-L0 primitives)
+(require nanopass/base json racket/list racket/set racket/contract)
+(provide L0 unparse-L0 parse-L0 render-L0 primitives (contract-out (current-primitives (parameter/c (listof symbol?)))))
 
 (define-language L0
   (terminals
@@ -27,8 +27,9 @@
                      equal? eq?
                      + - * / quotient modulo negate
                      is-a? object-type stream-type
-                     Var If Begin Lambda Set! App Datum Prim eval gensym expr-type
                      ))
+
+(define current-primitives (make-parameter primitives))
 
 (define variable?
   (lambda (v)

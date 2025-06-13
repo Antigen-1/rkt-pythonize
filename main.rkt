@@ -30,7 +30,7 @@
          "passes/stream.rkt" "passes/more-cond.rkt" "passes/cond-explicit.rkt" "passes/simple-begin.rkt" "passes/beta-reduce.rkt"
          "passes/partial-evaluate.rkt" "passes/L0-uniquify.rkt"
          racket/contract)
-(provide (rename-out (L12 L)) primitives
+(provide (rename-out (L12 L)) current-primitives
          (contract-out (rename compile compile-L
                                (->* (any/c path-string?)
                                     (#:raw? boolean?)

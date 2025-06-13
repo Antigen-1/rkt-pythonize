@@ -1,6 +1,7 @@
 #lang racket/base
 (require "L0.rkt" racket/runtime-path racket/file racket/contract json)
 (provide (contract-out (compile-L0 (-> any/c path-string? #:raw? boolean? any)))
+         current-primitives
          parse-L0 unparse-L0 L0
          py-lib-string
          primitives)

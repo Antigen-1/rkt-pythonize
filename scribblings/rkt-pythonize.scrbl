@@ -32,10 +32,12 @@ My Scheme2Python Compiler.
 @(pretty-format #:mode 'write (language->s-expression L))
 }
 
-@section{Primitives}
+@section{Default Primitives}
 
-@code{@(pretty-format #:mode 'write (list 'quote primitives))}
+@code{@(pretty-format #:mode 'write (list 'quote (current-primitives)))}
 
 @section{Functions}
+
+@defparam[current-primitives primitives (listof symbol?)]
 
 @defproc[#:kind "compiler" (compile-L (code any/c) (dest path-string?) (#:raw? raw? boolean? #f)) any]

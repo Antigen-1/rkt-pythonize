@@ -2,7 +2,6 @@ import importlib
 import json
 import copy
 import typing
-import uuid
 
 class SchemeException(Exception):
     pass
@@ -105,63 +104,6 @@ def mod(cc, v1, v2):
     return apply_cc(cc, v1 % v2)
 def isinstanceof(cc, obj, type):
     return apply_cc(cc, isinstance(obj, type))
-def Lambda(cc, arg_names: Seq[str], body):
-    def free(expr) -> typing.List[str]:
-        if "type" not in expr:
-            raise SchemeException(f"Lambda <free>: expects an AST, given {expr}")
-        etype = expr["type"]
-        if etype == "var":
-            return [expr["name"]]
-        elif etype == "app":
-            return sum([free(arg) for arg in expr["args"]], free(expr["func"]))
-        elif etype == "lambda":
-            return [name for name in free(expr["body"]) if name not in expr["args"]]
-        elif etype == "begin":
-            return sum([free(e) for e in expr["seq"]], [])
-        elif etype == "if":
-            return sum([free(expr["cond"]), free(expr["then"]), free(expr["otherwise"])], [])
-        elif etype == "set!":
-            return [expr["var"]] + free(expr["value"])
-        elif etype == "prim":
-            return []
-        elif etype == "datum":
-            return []
-        else:
-            raise SchemeException(f"Lambda <free>: unknown expression type {etype}")
-    return apply_cc(cc, {"type": "lambda", "args": arg_names, "body": body, "free": [name for name in free(body) if name not in arg_names]})
-def Var(cc, name: str):
-    return apply_cc(cc, {"type": "var", "name": name})
-def App(cc, func, args: Seq):
-    return apply_cc(cc, {"type": "app", "func": func, "args": args})
-def Prim(cc, name: str):
-    if name not in prims:
-        raise SchemeException(f"Prim: unknown primitive {name}")
-    return apply_cc(cc, {"type": "prim", "name": name})
-def Datum(cc, value):
-    return apply_cc(cc, {"type": "datum", "value": value})
-def Set(cc, var: str, value):
-    return apply_cc(cc, {"type": "set!", "var": var, "value": value})
-def Begin(cc, seq: Seq):
-    l = []
-    for expr in seq:
-        if "type" not in expr:
-            raise SchemeException(f"Begin: expects an AST, given {expr}")
-        etype = expr["type"]
-        if etype == "begin":
-            l.extend(expr["seq"])
-        else:
-            l.append(expr)
-    return apply_cc(cc, {"type": "begin", "seq": l})
-def If(cc, cond, then, otherwise):
-    return apply_cc(cc, {"type": "if", "cond": cond, "then": then, "otherwise": otherwise})
-def Eval(cc, expr, env: Env):
-    return apply_cc(cc, evalExpr(expr, env))
-def gensym(cc, prefix: str = "var"):
-    return apply_cc(cc, f"{prefix}-{uuid.uuid4().hex}")
-def exprType(cc, expr):
-    if "type" not in expr:
-        raise SchemeException(f"expr-type: expects an AST, given {expr}")
-    return apply_cc(cc, expr["type"])
 class Stream(object):
     def __init__(self, car: typing.Callable[[], typing.Any], cdr: typing.Callable[[], typing.Any]):
         self.car = car
@@ -192,17 +134,6 @@ prims: typing.Dict[str, typing.Union[typing.Callable, type, None]] = {
     "vm-apply": vm_apply,
     "dynamic-require": dynamic_require,
     "is-a?": isinstanceof,
-    "Lambda": Lambda,
-    "Var": Var,
-    "App": App,
-    "Prim": Prim,
-    "Datum": Datum,
-    "Set!": Set,
-    "Begin": Begin,
-    "If": If,
-    "eval": Eval,
-    "gensym": gensym,
-    "expr-type": exprType,
     "stream-type": Stream,
     "object-type": object_type,
     "none": none,
