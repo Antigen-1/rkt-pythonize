@@ -28,9 +28,9 @@
 (require "core/main.rkt" "passes/uniquify.rkt" "passes/explicit.rkt" "passes/cps.rkt" "passes/quote.rkt" "passes/let.rkt"
          "passes/named-let.rkt" "passes/cond.rkt" "passes/internal-begin.rkt" "passes/chain.rkt" "passes/vm.rkt"
          "passes/stream.rkt" "passes/more-cond.rkt" "passes/cond-explicit.rkt" "passes/simple-begin.rkt" "passes/beta-reduce.rkt"
-         "passes/partial-evaluate.rkt" "passes/L0-uniquify.rkt"
+         "passes/partial-evaluate.rkt" "passes/L0-uniquify.rkt" "passes/main.rkt"
          racket/contract)
-(provide (rename-out (L12 L)) current-primitives
+(provide L parse-L unparse-L current-primitives
          (contract-out (rename compile compile-L
                                (->* (any/c path-string?)
                                     (#:raw? boolean?)
@@ -56,7 +56,7 @@
     expand-stream
     expand-more-cond
     make-cond-explicit
-    parse-L12)
+    parse-L)
    code))
 
 (module+ test

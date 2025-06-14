@@ -42,4 +42,7 @@ This library has been tested against Python3.10.
 
 @defparam[current-primitives primitives (listof symbol?)]
 
+@defthing[#:kind "language" L any/c]
 @defproc[#:kind "compiler" (compile-L (code any/c) (dest path-string?) (#:raw? raw? boolean? #f)) any]
+@defproc[#:kind "parser" (parse-L (code any/c)) any]
+@defproc[#:kind "unparser" (unparse-L (s-exp any/c)) any]
