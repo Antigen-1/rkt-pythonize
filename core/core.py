@@ -49,60 +49,60 @@ def apply_cc(cc: CC, v):
     return cc(v)
 
 # Primitives
-def get_attribute(cc, obj, name):
+def get_attribute(cc: CC, obj, name):
     return apply_cc(cc, getattr(obj, name))
-def set_attribute(cc, obj, name, value):
+def set_attribute(cc: CC, obj, name, value):
     setattr(obj, name, value)
     return apply_cc(cc, None)
-def vm_apply(cc, proc, args):
+def vm_apply(cc: CC, proc, args):
     return apply_cc(cc, proc(*args))
-def apply(cc, proc, args):
+def apply(cc: CC, proc, args):
     return proc(cc, *args)
-def make_procedure(cc, proc):
+def make_procedure(cc: CC, proc):
     def func(cc, *args):
         return apply(cc, proc, [args])
     return apply_cc(cc, func)
-def make_python_procedure(cc, proc, arity):
+def make_python_procedure(cc: CC, proc, arity):
     def func(*args):
         if arity and (arity != len(args)):
             raise SchemeException(f"make-python-procedure <func>: arity mismatch(expected: {arity} argument(s); given: {args})")
         return runTrampoline(apply(lambda x:x, proc, args))
     return apply_cc(cc, func)
-def dynamic_require(cc, name, pkg):
+def dynamic_require(cc: CC, name, pkg):
     return apply_cc(cc, importlib.import_module(name, pkg))
-def ref(cc, obj, ind):
+def ref(cc: CC, obj, ind):
     return apply_cc(cc, obj[ind])
-def set(cc, obj, ind, val):
+def set(cc: CC, obj, ind, val):
     obj[ind] = val
     return apply_cc(cc, None)
-def has(cc, container, v):
+def has(cc: CC, container, v):
     return apply_cc(cc, v in container)
-def append(cc, arr, obj):
+def append(cc: CC, arr, obj):
     arr.append(obj)
     return apply_cc(cc, None)
-def length(cc, arr):
+def length(cc: CC, arr):
     return apply_cc(cc, len(arr))
-def _not(cc, b):
+def _not(cc: CC, b):
     return apply_cc(cc, not b)
-def equal(cc, o1, o2):
+def equal(cc: CC, o1, o2):
     return apply_cc(cc, o1 == o2)
-def eq(cc, o1, o2):
+def eq(cc: CC, o1, o2):
     return apply_cc(cc, o1 is o2)
-def add(cc, v1, v2):
+def add(cc: CC, v1, v2):
     return apply_cc(cc, v1 + v2)
-def sub(cc, v1, v2):
+def sub(cc: CC, v1, v2):
     return apply_cc(cc, v1 - v2)
-def neg(cc, v):
+def neg(cc: CC, v):
     return apply_cc(cc, -v)
-def mul(cc, v1, v2):
+def mul(cc: CC, v1, v2):
     return apply_cc(cc, v1 * v2)
-def div(cc, v1, v2):
+def div(cc: CC, v1, v2):
     return apply_cc(cc, v1 / v2)
-def quo(cc, v1, v2):
+def quo(cc: CC, v1, v2):
     return apply_cc(cc, v1 // v2)
-def mod(cc, v1, v2):
+def mod(cc: CC, v1, v2):
     return apply_cc(cc, v1 % v2)
-def isinstanceof(cc, obj, type):
+def isinstanceof(cc: CC, obj, type):
     return apply_cc(cc, isinstance(obj, type))
 class Stream(object):
     def __init__(self, car: typing.Callable[[], typing.Any], cdr: typing.Callable[[], typing.Any]):
