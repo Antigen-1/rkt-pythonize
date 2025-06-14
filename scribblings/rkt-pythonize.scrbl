@@ -14,6 +14,8 @@
 
 My Scheme2Python Compiler.
 
+This library has been tested against Python3.10.
+
 @section{Supported Features}
 
 @itemlist[

@@ -153,30 +153,95 @@ def runTrampoline(b):
         raise r
     return r
 
+# AST
+# TypedDicts for AST nodes
+class CodeType(typing.TypedDict):
+    type: typing.Literal["begin", "if", "set!", "var", "prim", "datum", "lambda", "app"]
+class Lambda(CodeType, total=True):
+    type: typing.Literal["lambda"]
+    args: Seq[str]
+    body: CodeType
+    free: Seq[str]
+class Begin(CodeType, total=True):
+    type: typing.Literal["begin"]
+    seq: Seq[CodeType]
+class If(CodeType, total=True):
+    type: typing.Literal["if"]
+    cond: CodeType
+    then: CodeType
+    otherwise: CodeType
+class Set(CodeType, total=True):
+    type: typing.Literal["set!"]
+    var: str
+    value: CodeType
+class Var(CodeType, total=True):
+    type: typing.Literal["var"]
+    name: str
+class Prim(CodeType, total=True):
+    type: typing.Literal["prim"]
+    name: str
+JSON_VALUE: typing.TypeAlias = typing.Union[str, int, float, bool, None, typing.List['JSON_VALUE'], typing.Dict[str, 'JSON_VALUE']]
+class Datum(CodeType, total=True):
+    type: typing.Literal["datum"]
+    value: JSON_VALUE
+class App(CodeType, total=True):
+    type: typing.Literal["app"]
+    func: CodeType
+    args: Seq[CodeType]
+# Type guards for AST
+def is_lambda(c: CodeType) -> typing.TypeGuard[Lambda]:
+    return c["type"] == "lambda"
+def is_begin(c: CodeType) -> typing.TypeGuard[Begin]:
+    return c["type"] == "begin"
+def is_if(c: CodeType) -> typing.TypeGuard[If]:
+    return c["type"] == "if"
+def is_set(c: CodeType) -> typing.TypeGuard[Set]:
+    return c["type"] == "set!"
+def is_var(c: CodeType) -> typing.TypeGuard[Var]:
+    return c["type"] == "var"
+def is_prim(c: CodeType) -> typing.TypeGuard[Prim]:
+    return c["type"] == "prim"
+def is_datum(c: CodeType) -> typing.TypeGuard[Datum]:
+    return c["type"] == "datum"
+def is_app(c: CodeType) -> typing.TypeGuard[App]:
+    return c["type"] == "app"
+
 # Evaluator
-def evalBegin(seq, e: Env) -> LazyBox:
+def evalBegin(c: Begin, e: Env) -> LazyBox:
+    seq = c["seq"]
     last_result = none
     for expr in seq:
         last_result = runTrampoline(evalExpr(expr, e))
     return LazyBox(lambda:last_result)
-def evalIf(cond, then, otherwise, e: Env) -> LazyBox:
+def evalIf(c: If, e: Env) -> LazyBox:
+    cond = c["cond"]
+    then = c["then"]
+    otherwise = c["otherwise"]
     cond_v = runTrampoline(evalExpr(cond, e))
     if cond_v is False:
         return LazyBox(lambda:evalExpr(otherwise, e))
     else:
         return LazyBox(lambda:evalExpr(then, e))
-def evalSet(var: str, value, e: Env) -> LazyBox:
+def evalSet(c: Set, e: Env) -> LazyBox:
+    var = c["var"]
+    value = c["value"]
     return LazyBox(lambda:setEnv(e, var, runTrampoline(evalExpr(value, e))))
-def evalVar(var: str, e: Env) -> LazyBox:
+def evalVar(c: Var, e: Env) -> LazyBox:
+    var = c["name"]
     return LazyBox(lambda:refEnv(e, var))
 # Return the object directly
 ##########################
-def evalPrim(prim, e: Env):
+def evalPrim(c: Prim, e: Env):
+    prim = c["name"]
     return prims[prim]
-def evalDatum(v, e: Env):
+def evalDatum(c: Datum, e: Env):
+    v = c["value"]
     # Avoid mutating objects in the abstract syntax tree
     return copy.deepcopy(v)
-def evalLambda(arg_names: Seq[str], body, free: Seq[str], e: Env):
+def evalLambda(c: Lambda, e: Env):
+    arg_names = c["args"]
+    body = c["body"]
+    free = c["free"]
     def func(*args):
         if len(args) != len(arg_names):
            return SchemeException(f"evalLambda <func>: arity mismatch(Expected {len(arg_names)} argument(s); Given {args})")
@@ -189,34 +254,33 @@ def evalLambda(arg_names: Seq[str], body, free: Seq[str], e: Env):
         return LazyBox(lambda: evalExpr(body, ne2))
     return func
 ##########################
-def evalApp(func, args, e: Env) -> LazyBox:
+def evalApp(c: App, e: Env) -> LazyBox:
+    func = c["func"]
+    args = c["args"]
     func_v = runTrampoline(evalExpr(func, e))
     args_l = []
     for arg in args:
         args_l.append(runTrampoline(evalExpr(arg, e)))
     return LazyBox(lambda:func_v(*args_l))
-def evalExpr(expr, e: Env) -> typing.Union[LazyBox, typing.Any]:
-    if not "type" in expr:
-        return SchemeException(f"evalExpr: expects an AST, given {expr}")
-    etype = expr["type"]
-    if etype == "begin":
-        return evalBegin(expr["seq"], e)
-    elif etype == "if":
-        return evalIf(expr["cond"], expr["then"], expr["otherwise"], e)
-    elif etype == "set!":
-        return evalSet(expr["var"], expr["value"], e)
-    elif etype == "var":
-        return evalVar(expr["name"], e)
-    elif etype == "prim":
-        return evalPrim(expr["name"], e)
-    elif etype == "datum":
-        return evalDatum(expr["value"], e)
-    elif etype == "lambda":
-        return evalLambda(expr["args"], expr["body"], expr["free"], e)
-    elif etype == "app":
-        return evalApp(expr["func"], expr["args"], e)
+def evalExpr(expr: CodeType, e: Env) -> typing.Union[LazyBox, typing.Any]:
+    if is_begin(expr):
+        return evalBegin(expr, e)
+    elif is_if(expr):
+        return evalIf(expr, e)
+    elif is_set(expr):
+        return evalSet(expr, e)
+    elif is_var(expr):
+        return evalVar(expr, e)
+    elif is_prim(expr):
+        return evalPrim(expr, e)
+    elif is_datum(expr):
+        return evalDatum(expr, e)
+    elif is_lambda(expr):
+        return evalLambda(expr, e)
+    elif is_app(expr):
+        return evalApp(expr, e)
     else:
-        return SchemeException(f"evalExpr: expects an AST, given {expr}")
-
+        raise SchemeException(f"evalExpr: unknown expression type {expr['type']}")
+    
 def run(code: str):
     return runTrampoline(evalExpr(json.loads(code), makeEnv()))
