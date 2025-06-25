@@ -105,6 +105,7 @@ def mod(cc: CC, v1, v2):
 def isinstanceof(cc: CC, obj, type):
     return apply_cc(cc, isinstance(obj, type))
 class Stream(object):
+    __slots__ = ('car', 'cdr')
     def __init__(self, car: typing.Callable[[], typing.Any], cdr: typing.Callable[[], typing.Any]):
         self.car = car
         self.cdr = cdr
@@ -141,6 +142,7 @@ prims: typing.Dict[str, typing.Union[typing.Callable, type, None]] = {
 
 # Trampoline
 class LazyBox(object):
+    __slots__ = ('func',)
     def __init__(self, func: typing.Callable[[], typing.Any]):
         self.func = func
     def __call__(self):
