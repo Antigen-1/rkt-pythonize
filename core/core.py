@@ -209,30 +209,28 @@ def is_app(c: CodeType) -> typing.TypeGuard[App]:
     return c["type"] == "app"
 
 # Evaluator
-def evalBegin(c: Begin, e: Env) -> LazyBox:
+def evalBegin(c: Begin, e: Env):
     seq = c["seq"]
     last_result = none
     for expr in seq:
         last_result = runTrampoline(evalExpr(expr, e))
-    return LazyBox(lambda:last_result)
-def evalIf(c: If, e: Env) -> LazyBox:
+    return last_result
+def evalIf(c: If, e: Env):
     cond = c["cond"]
     then = c["then"]
     otherwise = c["otherwise"]
     cond_v = runTrampoline(evalExpr(cond, e))
     if cond_v is False:
-        return LazyBox(lambda:evalExpr(otherwise, e))
+        return evalExpr(otherwise, e)
     else:
-        return LazyBox(lambda:evalExpr(then, e))
-def evalSet(c: Set, e: Env) -> LazyBox:
+        return evalExpr(then, e)
+def evalSet(c: Set, e: Env):
     var = c["var"]
     value = c["value"]
-    return LazyBox(lambda:setEnv(e, var, runTrampoline(evalExpr(value, e))))
-def evalVar(c: Var, e: Env) -> LazyBox:
+    return setEnv(e, var, runTrampoline(evalExpr(value, e)))
+def evalVar(c: Var, e: Env):
     var = c["name"]
-    return LazyBox(lambda:refEnv(e, var))
-# Return the object directly
-##########################
+    return refEnv(e, var)
 def evalPrim(c: Prim, e: Env):
     prim = c["name"]
     return prims[prim]
@@ -244,7 +242,7 @@ def evalLambda(c: Lambda, e: Env):
     arg_names = c["args"]
     body = c["body"]
     free = c["free"]
-    def func(*args):
+    def func(*args) -> typing.Union[LazyBox, SchemeException]:
         if len(args) != len(arg_names):
            return SchemeException(f"evalLambda <func>: arity mismatch(Expected {len(arg_names)} argument(s); Given {args})")
         ne1 = extendEnv(e, free)
@@ -253,17 +251,17 @@ def evalLambda(c: Lambda, e: Env):
         ne2 = bindEnv(ne1, arg_names, args)
         if isinstance(ne2, SchemeException):
            return ne2
+        # Tail-call optimization
         return LazyBox(lambda: evalExpr(body, ne2))
     return func
-##########################
-def evalApp(c: App, e: Env) -> LazyBox:
+def evalApp(c: App, e: Env):
     func = c["func"]
     args = c["args"]
     func_v = runTrampoline(evalExpr(func, e))
     args_l = []
     for arg in args:
         args_l.append(runTrampoline(evalExpr(arg, e)))
-    return LazyBox(lambda:func_v(*args_l))
+    return func_v(*args_l)
 def evalExpr(expr: CodeType, e: Env) -> typing.Union[LazyBox, typing.Any]:
     if is_begin(expr):
         return evalBegin(expr, e)
