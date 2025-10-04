@@ -26,8 +26,8 @@
 ;; Code here
 
 (require "core/main.rkt" "passes/uniquify.rkt" "passes/explicit.rkt" "passes/cps.rkt" "passes/quote.rkt" "passes/let.rkt"
-         "passes/named-let.rkt" "passes/cond.rkt" "passes/internal-begin.rkt" "passes/chain.rkt" "passes/vm.rkt"
-         "passes/stream.rkt" "passes/more-cond.rkt" "passes/cond-explicit.rkt" "passes/simple-begin.rkt" "passes/beta-reduce.rkt"
+         "passes/named-let.rkt" "passes/cond.rkt" "passes/chain.rkt" "passes/vm.rkt"
+         "passes/stream.rkt" "passes/more-cond.rkt" "passes/cond-explicit.rkt" "passes/beta-reduce.rkt"
          "passes/partial-evaluate.rkt" "passes/L0-uniquify.rkt" "passes/main.rkt"
          racket/contract)
 (provide L parse-L unparse-L current-primitives
@@ -36,16 +36,20 @@
                                     (#:raw? boolean?)
                                     any))))
 
+(define (repeat-pass n p e)
+  (let loop ((n n) (e e))
+    (if (= n 0)
+        e
+        (loop (- n 1) (p e)))))
+
 (define (compile code dest #:raw? (raw? #f))
   ((compose1
     (lambda (code) (compile-L0 code dest #:raw? raw?))
     L0-uniquify
     cps
-    partial-evaluate
-    beta-reduce
+    (lambda (e) (repeat-pass 5 partial-evaluate e))
+    (lambda (e) (repeat-pass 5 beta-reduce e))
     uniquify
-    reduce-simple-begin-forms
-    expand-internal-begin
     make-explicit
     add-quote
     expand-let

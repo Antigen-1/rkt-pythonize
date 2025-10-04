@@ -27,6 +27,15 @@
                   `,val
                   `,x))))
   (helper expr))
+(define (replace-set!-with-expr f id)
+  (define-pass helper :
+    L1 (ir) -> L1 ()
+    (Expr : Expr (ir) -> Expr ()
+      ((set! ,x ,[e])
+       (if (eq? x id)
+           `(begin ,e none)
+           `(set! ,x ,e)))))
+  (helper f))
 (define (primitive? expr)
   (nanopass-case (L1 Expr) expr
                  (,pr #t)
@@ -88,7 +97,12 @@
                                                (lambda? e))))
                                      (cons (replace-id-with (car t) x e)
                                            (cdr t))
-                                     (cons (car t) (cons (list x u e) (cdr t)))))
+                                     (if (and
+                                          ;; Remove variables that are only assigned with set!
+                                          (immediate? e)
+                                          (not (memq 'ref u)))
+                                         (cons (replace-set!-with-expr (car t) x) (cdr t))
+                                         (cons (car t) (cons (list x u e) (cdr t))))))
                                (cons e null)
                                nx* nu* ne*))
                       (ne (car ntable))

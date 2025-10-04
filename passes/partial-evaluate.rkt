@@ -38,9 +38,31 @@
          (string=? v1 v2))
         (else #f)))
 
+(define (begin? e)
+  (nanopass-case (L1 Expr) e
+    ((begin ,e ...)
+     #t)
+    (else #f)))
+(define (begin-body e)
+  (nanopass-case (L1 Expr) e
+    ((begin ,e ...)
+     e)))
+
 (define-pass partial-evaluate :
   L1 (ir) -> L1 ()
   (Expr : Expr (ir) -> Expr ()
+        ((begin ,[e*] ...)
+         ;; Expand internal begin forms
+         (define bodies1 (foldr (lambda (e bs) (if (begin? e) (append (begin-body e) bs) (cons e bs))) null e*))
+         ;; Remove immediate values (except the returned value)
+         (define bodies2 
+          (if (null? bodies1)
+              null
+              (let ((reversed (reverse bodies1)))
+                (reverse (cons (car reversed) (filter (lambda (b) (not (immediate? b))) (cdr reversed)))))))
+         (cond ((null? bodies2) `','none)
+               ((= (length bodies2) 1) (car bodies2))
+               (else `(begin ,bodies2 ...))))
         ((set! ,x0 ,x1)
          (if (eq? x0 x1)
              `','none
