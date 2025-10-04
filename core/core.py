@@ -26,6 +26,9 @@ def setEnv(e: Env, k: str, v):
         return SchemeException(f"setEnv: there is no variable called {k}")
 
     return None
+# Creates a shallow copy of the environment
+def copyEnv(e: Env) -> Env:
+    return e.copy()
 def bindEnv(e: Env, ks: Seq[str], vs: Seq) -> typing.Union[SchemeException, Env]:
     if len(ks) != len(vs):
        return SchemeException(f"bindEnv: given {len(ks)} key(s) and {len(vs)} value(s)")
@@ -242,17 +245,18 @@ def evalLambda(c: Lambda, e: Env):
     arg_names = c["args"]
     body = c["body"]
     free = c["free"]
+    ne1 = extendEnv(e, free)
+    if isinstance(ne1, SchemeException):
+       return ne1
     def func(*args) -> typing.Union[LazyBox, SchemeException]:
         if len(args) != len(arg_names):
            return SchemeException(f"evalLambda <func>: arity mismatch(Expected {len(arg_names)} argument(s); Given {args})")
-        ne1 = extendEnv(e, free)
-        if isinstance(ne1, SchemeException):
-           return ne1
-        ne2 = bindEnv(ne1, arg_names, args)
-        if isinstance(ne2, SchemeException):
-           return ne2
+        ne2 = copyEnv(ne1)
+        ne3 = bindEnv(ne2, arg_names, args)
+        if isinstance(ne3, SchemeException):
+           return ne3
         # Tail-call optimization
-        return LazyBox(lambda: evalExpr(body, ne2))
+        return LazyBox(lambda: evalExpr(body, ne3))
     return func
 def evalApp(c: App, e: Env):
     func = c["func"]
