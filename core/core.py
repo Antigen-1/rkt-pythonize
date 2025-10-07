@@ -11,7 +11,7 @@ Env = typing.Dict[str, list]
 Seq = typing.Sequence
 def makeEnv() -> Env:
     return {}
-def extendEnv(e: Env, free: Seq[str]) -> typing.Union[SchemeException, Env]:
+def subEnv(e: Env, free: Seq[str]) -> typing.Union[SchemeException, Env]:
     ne = {}
     for var in free:
         if var in e:
@@ -26,20 +26,17 @@ def setEnv(e: Env, k: str, v):
         return SchemeException(f"setEnv: there is no variable called {k}")
 
     return None
-# Creates a shallow copy of the environment
-def copyEnv(e: Env) -> Env:
-    return e.copy()
-def bindEnv(e: Env, ks: Seq[str], vs: Seq) -> typing.Union[SchemeException, Env]:
+def bindEnv(e: Env, ks: Seq[str], vs: Seq) -> typing.Union[SchemeException, None]:
     if len(ks) != len(vs):
        return SchemeException(f"bindEnv: given {len(ks)} key(s) and {len(vs)} value(s)")
-    for i in range(0, len(ks)):
-        k = ks[i]
-        v = vs[i]
-        if k in e:
+    n = {}
+    for k, v in zip(ks, vs):
+        if k in n:
             return SchemeException(f"bindEnv: there has been a variable called {k}")
         else:
+            n[k] = None
             e[k] = [v]
-    return e
+    return None
 def refEnv(e: Env, k:str):
     if k in e:
         return e[k][0]
@@ -214,10 +211,11 @@ def is_app(c: CodeType) -> typing.TypeGuard[App]:
 # Evaluator
 def evalBegin(c: Begin, e: Env):
     seq = c["seq"]
-    last_result = none
-    for expr in seq:
-        last_result = runTrampoline(evalExpr(expr, e))
-    return last_result
+    length = len(seq)
+    for i, expr in enumerate(seq):
+        if i == length - 1:
+            return evalExpr(expr, e)
+        runTrampoline(evalExpr(expr, e))
 def evalIf(c: If, e: Env):
     cond = c["cond"]
     then = c["then"]
@@ -245,18 +243,17 @@ def evalLambda(c: Lambda, e: Env):
     arg_names = c["args"]
     body = c["body"]
     free = c["free"]
-    ne1 = extendEnv(e, free)
-    if isinstance(ne1, SchemeException):
-       return ne1
+    ne = subEnv(e, free)
+    if isinstance(ne, SchemeException):
+       return ne
     def func(*args) -> typing.Union[LazyBox, SchemeException]:
         if len(args) != len(arg_names):
            return SchemeException(f"evalLambda <func>: arity mismatch(Expected {len(arg_names)} argument(s); Given {args})")
-        ne2 = copyEnv(ne1)
-        ne3 = bindEnv(ne2, arg_names, args)
-        if isinstance(ne3, SchemeException):
-           return ne3
+        me = bindEnv(ne, arg_names, args)
+        if isinstance(me, SchemeException):
+           return me
         # Tail-call optimization
-        return LazyBox(lambda: evalExpr(body, ne3))
+        return LazyBox(lambda: evalExpr(body, ne))
     return func
 def evalApp(c: App, e: Env):
     func = c["func"]
