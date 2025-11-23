@@ -1,5 +1,5 @@
 #lang racket/base
-(require nanopass/base uuid "../core/L0.rkt")
+(require nanopass/base uuid "../core/main.rkt")
 (provide L1 parse-L1 unparse-L1 cps)
 
 (define-language L1

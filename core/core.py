@@ -2,46 +2,75 @@ import importlib
 import json
 import copy
 import typing
+import collections.abc
 
 class SchemeException(Exception):
     pass
 
-# Environment representation
-Env = typing.Dict[str, list]
-Seq = typing.Sequence
-def makeEnv() -> Env:
-    return {}
-def subEnv(e: Env, free: Seq[str]) -> typing.Union[SchemeException, Env]:
-    ne = {}
-    for var in free:
-        if var in e:
-            ne[var] = e[var]
-        else:
-            return SchemeException(f"extendEnv: there is no variable called {var}")
-    return ne
-def setEnv(e: Env, k: str, v):
-    if k in e:
-        e[k][0] = v
-    else:
-        return SchemeException(f"setEnv: there is no variable called {k}")
+# Linked lists
+class Null(collections.abc.Sequence):
+    def __len__(self):
+        return 0
+    def __getitem__(self, ind):
+        return SchemeException(f"list-ref: index {ind} too large for list {self}")
+    def __str__(self) -> str:
+        return "null"
+class Pair(collections.abc.Sequence):
+    __slots__ = ("car", "cdr")
+    def __init__(self, car, cdr: typing.Union['Pair', Null]) -> None:
+        self.car = car
+        self.cdr = cdr
+    def __iter__(self) -> typing.Iterator:
+        list = self
+        while isinstance(list, Pair):
+            yield list.car
+            list = list.cdr
+    def __len__(self):
+        length = 0
+        list = self
+        while isinstance(list, Pair):
+            length += 1
+            list = list.cdr
+        return length
+    def __getitem__(self, ind):
+        offset = ind
+        list = self
+        while offset>0:
+            if isinstance(list, Null):
+                return SchemeException(f"list-ref: index {ind} too large for list {self}")
+            offset -= 1
+            list = list.cdr
+        if isinstance(list, Null):
+                return SchemeException(f"list-ref: index {ind} too large for list {self}")
+        return list.car
+    def __str__(self) -> str:
+        return f"(cons {self.car} {self.cdr})"
+List = typing.Union[Pair, Null]
+null = Null()
 
+# Environment representation
+Seq = typing.Sequence
+Env = List
+def makeEnv() -> Env:
+    return null
+def envHas(e: Env, n: str):
+    for f in e:
+        if n in f:
+            return True
+    return False
+def refEnv(e: Env, n: str):
+    for f in e:
+        if n in f:
+            return f[n]
+    return SchemeException(f"refEnv: variable {n} not found in {e}")
+def bindEnv(e: Env, n: str, v):
+    f = e[0]
+    if isinstance(f, SchemeException):
+        return SchemeException(f"bindEnv: empty environment {e}")
+    f[n] = v
     return None
-def bindEnv(e: Env, ks: Seq[str], vs: Seq) -> typing.Union[SchemeException, None]:
-    if len(ks) != len(vs):
-       return SchemeException(f"bindEnv: given {len(ks)} key(s) and {len(vs)} value(s)")
-    n = {}
-    for k, v in zip(ks, vs):
-        if k in n:
-            return SchemeException(f"bindEnv: there has been a variable called {k}")
-        else:
-            n[k] = None
-            e[k] = [v]
-    return None
-def refEnv(e: Env, k:str):
-    if k in e:
-        return e[k][0]
-    else:
-        return SchemeException(f"refEnv: there is no variable called {k}")
+def extendEnv(e: Env):
+    return Pair({}, e)
 
 # Utilities
 CC = typing.Callable[[typing.Any], typing.Any]
@@ -109,6 +138,17 @@ class Stream(object):
     def __init__(self, car: typing.Callable[[], typing.Any], cdr: typing.Callable[[], typing.Any]):
         self.car = car
         self.cdr = cdr
+class Box(object):
+    __slots__ = ("value",)
+    def __init__(self, value) -> None:
+        self.value = value
+def set_box(cc: CC, b: Box, v):
+    b.value = v
+    return apply_cc(cc, None)
+def box(cc: CC, v):
+    return apply_cc(cc, Box(v))
+def unbox(cc: CC, b: Box):
+    return apply_cc(cc, b.value)
 none = None
 object_type = object
 prims: typing.Dict[str, typing.Union[typing.Callable, type, None]] = {
@@ -117,6 +157,9 @@ prims: typing.Dict[str, typing.Union[typing.Callable, type, None]] = {
     "?": has,
     "<!": append,
     "length": length,
+    "set-box!": set_box,
+    "box": box,
+    "unbox": unbox,
     "not": _not,
     "equal?": equal,
     "eq?": eq,
@@ -137,6 +180,7 @@ prims: typing.Dict[str, typing.Union[typing.Callable, type, None]] = {
     "is-a?": isinstanceof,
     "stream-type": Stream,
     "object-type": object_type,
+    "box-type": Box,
     "none": none,
 }
 
@@ -159,20 +203,18 @@ def runTrampoline(b):
 # TypedDicts for AST nodes
 class CodeType(typing.TypedDict):
     type: typing.Literal["begin", "if", "set!", "var", "prim", "datum", "lambda", "app"]
+class Argument(typing.TypedDict):
+    type: typing.Literal["boxed", "unboxed"]
+    name: str
 class Lambda(CodeType, total=True):
     type: typing.Literal["lambda"]
-    args: Seq[str]
+    args: Seq[Argument]
     body: CodeType
-    free: Seq[str]
 class If(CodeType, total=True):
     type: typing.Literal["if"]
     cond: CodeType
     then: CodeType
     otherwise: CodeType
-class Set(CodeType, total=True):
-    type: typing.Literal["set!"]
-    var: str
-    value: CodeType
 class Var(CodeType, total=True):
     type: typing.Literal["var"]
     name: str
@@ -192,8 +234,6 @@ def is_lambda(c: CodeType) -> typing.TypeGuard[Lambda]:
     return c["type"] == "lambda"
 def is_if(c: CodeType) -> typing.TypeGuard[If]:
     return c["type"] == "if"
-def is_set(c: CodeType) -> typing.TypeGuard[Set]:
-    return c["type"] == "set!"
 def is_var(c: CodeType) -> typing.TypeGuard[Var]:
     return c["type"] == "var"
 def is_prim(c: CodeType) -> typing.TypeGuard[Prim]:
@@ -213,10 +253,6 @@ def evalIf(c: If, e: Env):
         return evalExpr(otherwise, e)
     else:
         return evalExpr(then, e)
-def evalSet(c: Set, e: Env):
-    var = c["var"]
-    value = c["value"]
-    return setEnv(e, var, runTrampoline(evalExpr(value, e)))
 def evalVar(c: Var, e: Env):
     var = c["name"]
     return refEnv(e, var)
@@ -228,18 +264,22 @@ def evalDatum(c: Datum, e: Env):
     # Avoid mutating objects in the abstract syntax tree
     return copy.deepcopy(v)
 def evalLambda(c: Lambda, e: Env):
-    arg_names = c["args"]
+    arg_info = c["args"]
+    arg_names = [ai["name"] for ai in arg_info]
+    arg_types = [ai["type"] for ai in arg_info]
     body = c["body"]
-    free = c["free"]
-    ne = subEnv(e, free)
-    if isinstance(ne, SchemeException):
-       return ne
     def func(*args) -> typing.Union[LazyBox, SchemeException]:
-        if len(args) != len(arg_names):
-           return SchemeException(f"evalLambda <func>: arity mismatch(Expected {len(arg_names)} argument(s); Given {args})")
-        me = bindEnv(ne, arg_names, args)
-        if isinstance(me, SchemeException):
-           return me
+        if len(args) != len(arg_info):
+           return SchemeException(f"evalLambda <func>: arity mismatch(Expected {len(arg_info)} argument(s); Given {args})")
+        ne = extendEnv(e)
+        for an, at, av in zip(arg_names, arg_types, args):
+            r = None
+            if at == "boxed":
+                r = bindEnv(ne, an, Box(av))
+            else:
+                r = bindEnv(ne, an, av)
+            if isinstance(r, SchemeException):
+                return r
         # Tail-call optimization
         return LazyBox(lambda: evalExpr(body, ne))
     return func
@@ -254,8 +294,6 @@ def evalApp(c: App, e: Env):
 def evalExpr(expr: CodeType, e: Env) -> typing.Union[LazyBox, typing.Any]:
     if is_if(expr):
         return evalIf(expr, e)
-    elif is_set(expr):
-        return evalSet(expr, e)
     elif is_var(expr):
         return evalVar(expr, e)
     elif is_prim(expr):
