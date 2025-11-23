@@ -164,9 +164,6 @@ class Lambda(CodeType, total=True):
     args: Seq[str]
     body: CodeType
     free: Seq[str]
-class Begin(CodeType, total=True):
-    type: typing.Literal["begin"]
-    seq: Seq[CodeType]
 class If(CodeType, total=True):
     type: typing.Literal["if"]
     cond: CodeType
@@ -193,8 +190,6 @@ class App(CodeType, total=True):
 # Type guards for AST
 def is_lambda(c: CodeType) -> typing.TypeGuard[Lambda]:
     return c["type"] == "lambda"
-def is_begin(c: CodeType) -> typing.TypeGuard[Begin]:
-    return c["type"] == "begin"
 def is_if(c: CodeType) -> typing.TypeGuard[If]:
     return c["type"] == "if"
 def is_set(c: CodeType) -> typing.TypeGuard[Set]:
@@ -209,13 +204,6 @@ def is_app(c: CodeType) -> typing.TypeGuard[App]:
     return c["type"] == "app"
 
 # Evaluator
-def evalBegin(c: Begin, e: Env):
-    seq = c["seq"]
-    length = len(seq)
-    for i, expr in enumerate(seq):
-        if i == length - 1:
-            return evalExpr(expr, e)
-        runTrampoline(evalExpr(expr, e))
 def evalIf(c: If, e: Env):
     cond = c["cond"]
     then = c["then"]
@@ -264,9 +252,7 @@ def evalApp(c: App, e: Env):
         args_l.append(runTrampoline(evalExpr(arg, e)))
     return func_v(*args_l)
 def evalExpr(expr: CodeType, e: Env) -> typing.Union[LazyBox, typing.Any]:
-    if is_begin(expr):
-        return evalBegin(expr, e)
-    elif is_if(expr):
+    if is_if(expr):
         return evalIf(expr, e)
     elif is_set(expr):
         return evalSet(expr, e)

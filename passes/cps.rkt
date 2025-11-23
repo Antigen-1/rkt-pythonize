@@ -5,7 +5,8 @@
 (define-language L1
   (extends L0)
   (Expr (e body)
-        (+ (let/cc x body))))
+        (+ (let/cc x body)
+           (begin e* ...))))
 
 (define-parser parse-L1 L1)
 

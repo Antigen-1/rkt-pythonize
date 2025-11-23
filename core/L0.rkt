@@ -11,7 +11,6 @@
     x
     pr
     'd
-    (begin e* ...)
     (if e0 e1 e2)
     (lambda (x* ...) body)
     (set! x e)
@@ -45,9 +44,9 @@
 
 (module+ test
   (require rackunit)
-  (let ((form '(begin (if '1
-                          (lambda (x) x)
-                          (set! x ((lambda (y) y) '2))))))
+  (let ((form '(if '1
+                 (lambda (x) x)
+                 (set! x ((lambda (y) y) '2)))))
     (check-equal?
      form
      (unparse-L0 (parse-L0 form))))
@@ -61,8 +60,6 @@
                  (,pr (seteq))
                  (,x (seteq x))
                  (',d (seteq))
-                 ((begin ,body* ...)
-                  (apply set-union (map free-variables body*)))
                  ((if ,e0 ,e1 ,e2)
                   (set-union (free-variables e0)
                              (free-variables e1)
@@ -80,9 +77,6 @@
                              'name (symbol->string x)))
                  (',d (hasheq 'type "datum"
                               'value `,d))
-                 ((begin ,e* ...)
-                  (hasheq 'type "begin"
-                          'seq (map render-L0 e*)))
                  ((if ,e0 ,e1 ,e2)
                   (hasheq 'type "if"
                           'cond (render-L0 e0)
