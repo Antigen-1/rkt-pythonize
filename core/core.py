@@ -3,6 +3,7 @@ import json
 import copy
 import typing
 import collections.abc
+import functools
 
 class SchemeException(Exception):
     pass
@@ -53,24 +54,13 @@ Seq = typing.Sequence
 Env = List
 def makeEnv() -> Env:
     return null
-def envHas(e: Env, n: str):
-    for f in e:
-        if n in f:
-            return True
-    return False
-def refEnv(e: Env, n: str):
-    for f in e:
-        if n in f:
-            return f[n]
-    return SchemeException(f"refEnv: variable {n} not found in {e}")
-def bindEnv(e: Env, n: str, v):
-    f = e[0]
-    if isinstance(f, SchemeException):
-        return SchemeException(f"bindEnv: empty environment {e}")
-    f[n] = v
-    return None
-def extendEnv(e: Env):
-    return Pair({}, e)
+def refEnv(e: Env, n: int):
+    r = e[n]
+    if isinstance(r, SchemeException):
+        return SchemeException(f"refEnv: variable {n} not found in {e}")
+    return r
+def pushEnv(e: Env, v):
+    return Pair(v, e)
 
 # Utilities
 CC = typing.Callable[[typing.Any], typing.Any]
@@ -205,19 +195,19 @@ class CodeType(typing.TypedDict):
     type: typing.Literal["begin", "if", "set!", "var", "prim", "datum", "lambda", "app"]
 class Argument(typing.TypedDict):
     type: typing.Literal["boxed", "unboxed"]
-    name: str
-class Lambda(CodeType, total=True):
-    type: typing.Literal["lambda"]
+class Closure(CodeType, total=True):
+    type: typing.Literal["closure"]
     args: Seq[Argument]
-    body: CodeType
+    free: Seq[int]
+    code: CodeType
 class If(CodeType, total=True):
     type: typing.Literal["if"]
     cond: CodeType
     then: CodeType
     otherwise: CodeType
-class Var(CodeType, total=True):
-    type: typing.Literal["var"]
-    name: str
+class Ref(CodeType, total=True):
+    type: typing.Literal["ref"]
+    location: int
 class Prim(CodeType, total=True):
     type: typing.Literal["prim"]
     name: str
@@ -230,12 +220,12 @@ class App(CodeType, total=True):
     func: CodeType
     args: Seq[CodeType]
 # Type guards for AST
-def is_lambda(c: CodeType) -> typing.TypeGuard[Lambda]:
-    return c["type"] == "lambda"
+def is_closure(c: CodeType) -> typing.TypeGuard[Closure]:
+    return c["type"] == "closure"
 def is_if(c: CodeType) -> typing.TypeGuard[If]:
     return c["type"] == "if"
-def is_var(c: CodeType) -> typing.TypeGuard[Var]:
-    return c["type"] == "var"
+def is_ref(c: CodeType) -> typing.TypeGuard[Ref]:
+    return c["type"] == "ref"
 def is_prim(c: CodeType) -> typing.TypeGuard[Prim]:
     return c["type"] == "prim"
 def is_datum(c: CodeType) -> typing.TypeGuard[Datum]:
@@ -253,9 +243,9 @@ def evalIf(c: If, e: Env):
         return evalExpr(otherwise, e)
     else:
         return evalExpr(then, e)
-def evalVar(c: Var, e: Env):
-    var = c["name"]
-    return refEnv(e, var)
+def evalRef(c: Ref, e: Env):
+    loc = c["location"]
+    return refEnv(e, loc)
 def evalPrim(c: Prim, e: Env):
     prim = c["name"]
     return prims[prim]
@@ -263,23 +253,25 @@ def evalDatum(c: Datum, e: Env):
     v = c["value"]
     # Avoid mutating objects in the abstract syntax tree
     return copy.deepcopy(v)
-def evalLambda(c: Lambda, e: Env):
+def evalClosure(c: Closure, e: Env):
     arg_info = c["args"]
-    arg_names = [ai["name"] for ai in arg_info]
+    free = c["free"]
     arg_types = [ai["type"] for ai in arg_info]
-    body = c["body"]
+    body = c["code"]
     def func(*args) -> typing.Union[LazyBox, SchemeException]:
         if len(args) != len(arg_info):
-           return SchemeException(f"evalLambda <func>: arity mismatch(Expected {len(arg_info)} argument(s); Given {args})")
-        ne = extendEnv(e)
-        for an, at, av in zip(arg_names, arg_types, args):
-            r = None
+           return SchemeException(f"evalClosure <func>: arity mismatch(Expected {len(arg_info)} argument(s); Given {args})")
+        ne = makeEnv()
+        for fi in free:
+            fv = refEnv(e, fi)
+            if isinstance(fv, SchemeException):
+                return fv
+            ne = pushEnv(ne, fv)
+        for at, av in zip(arg_types, args):
             if at == "boxed":
-                r = bindEnv(ne, an, Box(av))
+                ne = pushEnv(ne, Box(av))
             else:
-                r = bindEnv(ne, an, av)
-            if isinstance(r, SchemeException):
-                return r
+                ne = pushEnv(ne, av)
         # Tail-call optimization
         return LazyBox(lambda: evalExpr(body, ne))
     return func
@@ -294,14 +286,14 @@ def evalApp(c: App, e: Env):
 def evalExpr(expr: CodeType, e: Env) -> typing.Union[LazyBox, typing.Any]:
     if is_if(expr):
         return evalIf(expr, e)
-    elif is_var(expr):
-        return evalVar(expr, e)
+    elif is_ref(expr):
+        return evalRef(expr, e)
     elif is_prim(expr):
         return evalPrim(expr, e)
     elif is_datum(expr):
         return evalDatum(expr, e)
-    elif is_lambda(expr):
-        return evalLambda(expr, e)
+    elif is_closure(expr):
+        return evalClosure(expr, e)
     elif is_app(expr):
         return evalApp(expr, e)
     else:

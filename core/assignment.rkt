@@ -1,9 +1,9 @@
 #lang racket/base
-(require "base.rkt" racket/set nanopass/base uuid)
+(require "closure.rkt" racket/set nanopass/base uuid)
 (provide LS unparse-LS parse-LS expand-assignments)
 
 (define-language LS 
-    (extends LB)
+    (extends LC)
     (Expr (e body) 
         (- (lambda (a* ...) body))
         (+ (set! x e)
@@ -23,7 +23,7 @@
 
 (define (expand-assignments ast)
     (define assignments (find-assignments ast))
-    (define-pass helper : LS (ir) -> LB ()
+    (define-pass helper : LS (ir) -> LC ()
         (Expr : Expr (ir) -> Expr ()
             (,x 
              (define id (uuid-symbol))
@@ -32,5 +32,5 @@
              (define id (uuid-symbol))
              `(set-box! (lambda (,id) ,id) ,x ,e))
             ((lambda (,x* ...) ,[body])
-             (parse-LB (list 'lambda (map (lambda (x) (if (set-member? assignments x) (list 'box x) x)) x*) (unparse-LB body))))))
+             (parse-LC (list 'lambda (map (lambda (x) (if (set-member? assignments x) (list 'box x) x)) x*) (unparse-LC body))))))
     (helper ast))

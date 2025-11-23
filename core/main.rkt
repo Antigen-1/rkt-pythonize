@@ -1,5 +1,5 @@
 #lang racket/base
-(require "base.rkt" "assignment.rkt" "check-uniquification.rkt" racket/runtime-path racket/file racket/contract json)
+(require "base.rkt" "assignment.rkt" "closure.rkt" "check-uniquification.rkt" racket/runtime-path racket/file racket/contract json)
 (provide (contract-out (compile-L0 (-> any/c path-string? #:raw? boolean? any)))
          current-primitives
          (rename-out (parse-LS parse-L0)
@@ -12,7 +12,7 @@
 (define py-lib-string (file->string core-py))
 
 (define render-L0
-  (compose1 render-LB check-uniquification expand-assignments))
+  (compose1 render-LB analyze-closure check-uniquification expand-assignments))
 
 (define (compile-L0 code dest #:raw? raw?)
   (call-with-output-file
