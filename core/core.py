@@ -5,62 +5,22 @@ import typing
 import collections.abc
 import functools
 
+# Types
+Seq = typing.Sequence
+Env = list
+
 class SchemeException(Exception):
     pass
 
-# Linked lists
-class Null(collections.abc.Sequence):
-    def __len__(self):
-        return 0
-    def __getitem__(self, ind):
-        return SchemeException(f"list-ref: index {ind} too large for list {self}")
-    def __str__(self) -> str:
-        return "null"
-class Pair(collections.abc.Sequence):
-    __slots__ = ("car", "cdr")
-    def __init__(self, car, cdr: typing.Union['Pair', Null]) -> None:
-        self.car = car
-        self.cdr = cdr
-    def __iter__(self) -> typing.Iterator:
-        list = self
-        while isinstance(list, Pair):
-            yield list.car
-            list = list.cdr
-    def __len__(self):
-        length = 0
-        list = self
-        while isinstance(list, Pair):
-            length += 1
-            list = list.cdr
-        return length
-    def __getitem__(self, ind):
-        offset = ind
-        list = self
-        while offset>0:
-            if isinstance(list, Null):
-                return SchemeException(f"list-ref: index {ind} too large for list {self}")
-            offset -= 1
-            list = list.cdr
-        if isinstance(list, Null):
-                return SchemeException(f"list-ref: index {ind} too large for list {self}")
-        return list.car
-    def __str__(self) -> str:
-        return f"(cons {self.car} {self.cdr})"
-List = typing.Union[Pair, Null]
-null = Null()
-
 # Environment representation
-Seq = typing.Sequence
-Env = List
 def makeEnv() -> Env:
-    return null
+    return []
 def refEnv(e: Env, n: int):
-    r = e[n]
-    if isinstance(r, SchemeException):
-        return SchemeException(f"refEnv: variable {n} not found in {e}")
-    return r
+    if n >= len(e):
+        return SchemeException(f"refEnv: index {n} too large for environment {e}")
+    return e[n]
 def pushEnv(e: Env, v):
-    return Pair(v, e)
+    return e.append(v)
 
 # Utilities
 CC = typing.Callable[[typing.Any], typing.Any]
@@ -89,6 +49,53 @@ def make_python_procedure(cc: CC, proc, arity):
     return apply_cc(cc, func)
 def dynamic_require(cc: CC, name, pkg):
     return apply_cc(cc, importlib.import_module(name, pkg))
+class Null(collections.abc.Sequence):
+    def __len__(self):
+        return 0
+    def __getitem__(self, ind):
+        assert ind >= 0
+        return SchemeException(f"list-ref: index {ind} too large for list {self}")
+    def __str__(self) -> str:
+        return "null"
+class Pair(collections.abc.Sequence):
+    __slots__ = ("car", "cdr")
+    def __init__(self, car, cdr: typing.Union['Pair', Null]) -> None:
+        self.car = car
+        self.cdr = cdr
+    def __iter__(self) -> typing.Iterator:
+        list = self
+        while isinstance(list, Pair):
+            yield list.car
+            list = list.cdr
+    def __len__(self):
+        length = 0
+        list = self
+        while isinstance(list, Pair):
+            length += 1
+            list = list.cdr
+        return length
+    def __getitem__(self, ind):
+        assert ind >= 0
+        offset = ind
+        list = self
+        while offset>0:
+            if isinstance(list, Null):
+                return SchemeException(f"list-ref: index {ind} too large for list {self}")
+            offset -= 1
+            list = list.cdr
+        if isinstance(list, Null):
+                return SchemeException(f"list-ref: index {ind} too large for list {self}")
+        return list.car
+    def __str__(self) -> str:
+        return f"(cons {self.car} {self.cdr})"
+List = typing.Union[Pair, Null]
+null = Null()
+def cons(cc: CC, v1, v2: List):
+    return apply_cc(cc, Pair(v1, v2))
+def car(cc: CC, l: Pair):
+    return apply_cc(cc, l.car)
+def cdr(cc: CC, l: Pair):
+    return apply_cc(cc, l.cdr)
 def ref(cc: CC, obj, ind):
     return apply_cc(cc, obj[ind])
 def set(cc: CC, obj, ind, val):
@@ -141,11 +148,15 @@ def unbox(cc: CC, b: Box):
     return apply_cc(cc, b.value)
 none = None
 object_type = object
-prims: typing.Dict[str, typing.Union[typing.Callable, type, None]] = {
+prims: typing.Dict[str, typing.Union[typing.Callable, type, None, Null]] = {
     "@": ref,
     "!": set,
     "?": has,
     "<!": append,
+    "cons": cons,
+    "car": car,
+    "cdr": cdr,
+    "null": null,
     "length": length,
     "set-box!": set_box,
     "box": box,
@@ -266,12 +277,12 @@ def evalClosure(c: Closure, e: Env):
             fv = refEnv(e, fi)
             if isinstance(fv, SchemeException):
                 return fv
-            ne = pushEnv(ne, fv)
+            pushEnv(ne, fv)
         for at, av in zip(arg_types, args):
             if at == "boxed":
-                ne = pushEnv(ne, Box(av))
+                pushEnv(ne, Box(av))
             else:
-                ne = pushEnv(ne, av)
+                pushEnv(ne, av)
         # Tail-call optimization
         return LazyBox(lambda: evalExpr(body, ne))
     return func

@@ -48,9 +48,9 @@
                     (an (length a*))
                     (fn (length fs))
                     (fi (map (lambda (f) (hash-ref table f (lambda () (raise-syntax-error 'analyze-closure (format "variable ~a not found" f))))) fs))
-                    (ntable1 (foldl (lambda (fv ind t) (hash-set t fv (+ ind an))) (hasheq) fs (reverse (range 0 fn))))
+                    (ntable1 (foldl (lambda (fv ind t) (hash-set t fv ind)) (hasheq) fs (range 0 fn)))
                     ;; Locate current arguments
-                    (ntable2 (foldl (lambda (s i t) (hash-set t s i)) ntable1 as (reverse (range 0 an)))))
+                    (ntable2 (foldl (lambda (s i t) (hash-set t s (+ i fn))) ntable1 as (range 0 an))))
                 `(closure
                   ;; arguments
                   ,(map render-argument a*) 

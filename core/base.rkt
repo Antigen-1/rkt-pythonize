@@ -20,7 +20,7 @@
                      dynamic-require
                      get-attribute set-attribute!
                      none
-                     ! @ ? <! length set-box! unbox box
+                     ! @ ? <! length set-box! unbox box cons car cdr null
                      not
                      equal? eq?
                      + - * / quotient modulo negate
