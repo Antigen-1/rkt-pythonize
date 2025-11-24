@@ -11,7 +11,7 @@
     pr
     'd
     (ref d)
-    (closure d0 d1 d2)
+    (closure d0 d1 e)
     (if e0 e1 e2)
     (e0 e* ...)))
 
@@ -46,11 +46,11 @@
                               'value `,d))
                  ((ref ,d) (hasheq 'type "ref"
                                    'location `,d))
-                 ((closure ,d1 ,d2 ,d3)
+                 ((closure ,d1 ,d2 ,e)
                   (hasheq 'type "closure" 
                           'args d1
                           'free d2 
-                          'code d3))
+                          'code (render-LB e)))
                  ((if ,e0 ,e1 ,e2)
                   (hasheq 'type "if"
                           'cond (render-LB e0)

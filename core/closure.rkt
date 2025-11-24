@@ -57,6 +57,6 @@
                   ;; free variables
                   ,fi 
                   ;; codes
-                  ,(render-LB (analyze-closure body ntable2)))))
+                  ,(analyze-closure body ntable2))))
             (,x `(ref ,(hash-ref table x (lambda () (raise-syntax-error 'analyze-closure (format "variable ~a not found" x))))))))
     (LC->LB ast))

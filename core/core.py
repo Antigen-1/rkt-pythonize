@@ -49,7 +49,10 @@ def make_python_procedure(cc: CC, proc, arity):
     return apply_cc(cc, func)
 def dynamic_require(cc: CC, name, pkg):
     return apply_cc(cc, importlib.import_module(name, pkg))
-class Null(collections.abc.Sequence):
+#####################################
+class List(collections.abc.Sequence):
+    pass
+class Null(List):
     def __len__(self):
         return 0
     def __getitem__(self, ind):
@@ -57,9 +60,9 @@ class Null(collections.abc.Sequence):
         return SchemeException(f"list-ref: index {ind} too large for list {self}")
     def __str__(self) -> str:
         return "null"
-class Pair(collections.abc.Sequence):
+class Pair(List):
     __slots__ = ("car", "cdr")
-    def __init__(self, car, cdr: typing.Union['Pair', Null]) -> None:
+    def __init__(self, car, cdr: List) -> None:
         self.car = car
         self.cdr = cdr
     def __iter__(self) -> typing.Iterator:
@@ -83,12 +86,11 @@ class Pair(collections.abc.Sequence):
                 return SchemeException(f"list-ref: index {ind} too large for list {self}")
             offset -= 1
             list = list.cdr
-        if isinstance(list, Null):
-                return SchemeException(f"list-ref: index {ind} too large for list {self}")
-        return list.car
+        if isinstance(list, Pair):
+                return list.car
+        return SchemeException(f"list-ref: index {ind} too large for list {self}")
     def __str__(self) -> str:
         return f"(cons {self.car} {self.cdr})"
-List = typing.Union[Pair, Null]
 null = Null()
 def cons(cc: CC, v1, v2: List):
     return apply_cc(cc, Pair(v1, v2))
@@ -96,6 +98,7 @@ def car(cc: CC, l: Pair):
     return apply_cc(cc, l.car)
 def cdr(cc: CC, l: Pair):
     return apply_cc(cc, l.cdr)
+#####################################
 def ref(cc: CC, obj, ind):
     return apply_cc(cc, obj[ind])
 def set(cc: CC, obj, ind, val):
@@ -181,6 +184,7 @@ prims: typing.Dict[str, typing.Union[typing.Callable, type, None, Null]] = {
     "is-a?": isinstanceof,
     "stream-type": Stream,
     "object-type": object_type,
+    "linked-list-type": List,
     "box-type": Box,
     "none": none,
 }
