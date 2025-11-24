@@ -28,6 +28,8 @@ def apply_cc(cc: CC, v):
     return cc(v)
 
 # Primitives
+def _print(cc: CC, v):
+    return apply_cc(cc, print(v))
 def get_attribute(cc: CC, obj, name):
     return apply_cc(cc, getattr(obj, name))
 def set_attribute(cc: CC, obj, name, value):
@@ -131,6 +133,10 @@ def quo(cc: CC, v1, v2):
     return apply_cc(cc, v1 // v2)
 def mod(cc: CC, v1, v2):
     return apply_cc(cc, v1 % v2)
+def more(cc: CC, v1, v2):
+    return apply_cc(cc, v1 > v2)
+def less(cc: CC, v1, v2):
+    return apply_cc(cc, v1 < v2)
 def isinstanceof(cc: CC, obj, type):
     return apply_cc(cc, isinstance(obj, type))
 class Stream(object):
@@ -152,6 +158,7 @@ def unbox(cc: CC, b: Box):
 none = None
 object_type = object
 prims: typing.Dict[str, typing.Union[typing.Callable, type, None, Null]] = {
+    "print": _print,
     "@": ref,
     "!": set,
     "?": has,
@@ -174,6 +181,8 @@ prims: typing.Dict[str, typing.Union[typing.Callable, type, None, Null]] = {
     "quotient": quo,
     "modulo": mod,
     "negate": neg,
+    ">": more,
+    "<": less,
     "get-attribute": get_attribute,
     "set-attribute!": set_attribute,
     "apply": apply,

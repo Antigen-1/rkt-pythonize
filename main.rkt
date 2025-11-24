@@ -1,7 +1,7 @@
 #lang racket/base
 
 (module+ test
-  (require rackunit racket/system racket/file racket/pretty))
+  (require rackunit racket/system racket/file racket/pretty racket/list))
 
 ;; Notice
 ;; To install (from within the package directory):
@@ -352,6 +352,30 @@
            (print (not #t))
            )
         "3\n0.5\n0.5\n0.0\n1.0\n-1.0\nTrue\nTrue\nTrue\nFalse\nFalse\nFalse\nTrue\nTrue\nFalse\nTrue\nFalse\nFalse\n1\n2\n3\n4\n1\nTrue\nFalse\nFalse\n")
+  ;; Linked lists
+  (let ((test-list (build-list 500 (lambda (n) (random 0 10000)))))
+    (test `(letrec ((array-list->linked-list (lambda (al) (let ((len (length al))) (let loop ((i 0)) (if (equal? i len) null (cons (@ al i) (loop (+ i 1))))))))
+                    (append (lambda (l1 l2)
+                              (if (eq? l1 null)
+                                  l2
+                                  (cons (car l1) (append (cdr l1) l2)))))
+                    (partition (lambda (n l p)
+                                  (if (eq? l null)
+                                      (cons null (cons null null))
+                                      (let ((first (car l))
+                                            (sl (partition n (cdr l) p)))
+                                        (if (p first n)
+                                            (cons (cons first (@ sl 0)) (cons (@ sl 1) null))
+                                            (cons (@ sl 0) (cons (cons first (@ sl 1)) null)))))))
+                    (sort (lambda (l)
+                            (if (eq? l null)
+                                l
+                                (let ((first (car l))
+                                      (rest (cdr l)))
+                                    (let ((pl (partition first rest <)))
+                                      (append (sort (@ pl 0)) (cons first (sort (@ pl 1))))))))))
+                (print (sort (array-list->linked-list ',test-list))))
+          (string-append (foldr (lambda (n s) (format "(cons ~a ~a)" n s)) "null" (sort test-list <)) "\n")))
   ;; Benchmark
   (test '(letrec ((builtin (dynamic-require "builtins" none))
                   (print (#%vm-procedure (=> builtin "print") 1))

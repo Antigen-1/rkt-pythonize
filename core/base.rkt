@@ -15,7 +15,7 @@
     (if e0 e1 e2)
     (e0 e* ...)))
 
-(define primitives '(
+(define primitives '(print
                      apply make-procedure make-python-procedure vm-apply
                      dynamic-require
                      get-attribute set-attribute!
@@ -23,7 +23,7 @@
                      ! @ ? <! length set-box! unbox box cons car cdr null
                      not
                      equal? eq?
-                     + - * / quotient modulo negate
+                     + - * / quotient modulo negate > <
                      is-a? object-type stream-type box-type
                      ))
 
