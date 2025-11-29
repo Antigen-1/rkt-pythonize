@@ -353,7 +353,7 @@
            )
         "3\n0.5\n0.5\n0.0\n1.0\n-1.0\nTrue\nTrue\nTrue\nFalse\nFalse\nFalse\nTrue\nTrue\nFalse\nTrue\nFalse\nFalse\n1\n2\n3\n4\n1\nTrue\nFalse\nFalse\n")
   ;; Linked lists
-  (let ((test-list (build-list 500 (lambda (n) (random 0 10000)))))
+  (let ((test-list (build-list 5000 (lambda (n) (random 0 10000)))))
     (test `(letrec ((array-list->linked-list (lambda (al) (let ((len (length al))) (let loop ((i 0)) (if (equal? i len) null (cons (@ al i) (loop (+ i 1))))))))
                     (append (lambda (l1 l2)
                               (if (eq? l1 null)
@@ -375,7 +375,7 @@
                                     (let ((pl (partition first rest <)))
                                       (append (sort (@ pl 0)) (cons first (sort (@ pl 1))))))))))
                 (print (sort (array-list->linked-list ',test-list))))
-          (string-append (foldr (lambda (n s) (format "(cons ~a ~a)" n s)) "null" (sort test-list <)) "\n")))
+          (string-append (format "~a" (sort test-list <)) "\n")))
   ;; Benchmark
   (test '(letrec ((builtin (dynamic-require "builtins" none))
                   (print (#%vm-procedure (=> builtin "print") 1))

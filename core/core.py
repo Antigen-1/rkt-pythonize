@@ -3,24 +3,27 @@ import json
 import copy
 import typing
 import collections.abc
-import functools
 
 # Types
 Seq = typing.Sequence
 Env = list
 
+# Exceptions
 class SchemeException(Exception):
     pass
 
 # Environment representation
-def makeEnv() -> Env:
-    return []
+def makeEnv(l : int) -> Env:
+    return [0] * l
 def refEnv(e: Env, n: int):
     if n >= len(e):
         return SchemeException(f"refEnv: index {n} too large for environment {e}")
     return e[n]
-def pushEnv(e: Env, v):
-    return e.append(v)
+def setEnv(e: Env, n: int, v):
+    if len(e) <= n:
+        return SchemeException(f"setEnv: index {n} too large for environment {e}")
+    e[n] = v
+    return None
 
 # Utilities
 CC = typing.Callable[[typing.Any], typing.Any]
@@ -35,6 +38,33 @@ def get_attribute(cc: CC, obj, name):
 def set_attribute(cc: CC, obj, name, value):
     setattr(obj, name, value)
     return apply_cc(cc, None)
+# Procedures
+####################################################
+# Closures
+class SchemeClosure(object):
+    __slots__ = ("base", "arg_type", "arg_num", "free", "free_num", "code")
+    def __init__(self, base: list, arg_info: Seq['Argument'], free: Seq[int], code: 'CodeType') -> None:
+        self.base = base
+        self.arg_type = [ai["type"] for ai in arg_info]
+        self.arg_num = len(arg_info)
+        self.free = free
+        self.free_num = len(free)
+        self.code = code
+    def __call__(self, *args):
+        if len(args) != self.arg_num:
+           return SchemeException(f"SchemeClosure: arity mismatch(Expected {self.arg_num} argument(s); Given {args})")
+        ne = makeEnv(self.arg_num + self.free_num)
+        for fi, si in zip(self.free, range(self.free_num)):
+            fv = refEnv(self.base, fi)
+            if isinstance(fv, SchemeException):
+                return fv
+            setEnv(ne, si, fv)
+        for at, av, oi in zip(self.arg_type, args, range(0, self.arg_num)):
+            if at == "boxed":
+                setEnv(ne, oi + self.free_num, Box(av))
+            else:
+                setEnv(ne, oi + self.free_num, av)
+        return LazyBox(lambda : evalExpr(self.code, ne))
 def vm_apply(cc: CC, proc, args):
     return apply_cc(cc, proc(*args))
 def apply(cc: CC, proc, args):
@@ -49,6 +79,7 @@ def make_python_procedure(cc: CC, proc, arity):
             raise SchemeException(f"make-python-procedure <func>: arity mismatch(expected: {arity} argument(s); given: {args})")
         return runTrampoline(apply(lambda x:x, proc, args))
     return apply_cc(cc, func)
+####################################################
 def dynamic_require(cc: CC, name, pkg):
     return apply_cc(cc, importlib.import_module(name, pkg))
 #####################################
@@ -61,7 +92,7 @@ class Null(List):
         assert ind >= 0
         return SchemeException(f"list-ref: index {ind} too large for list {self}")
     def __str__(self) -> str:
-        return "null"
+        return "()"
 class Pair(List):
     __slots__ = ("car", "cdr")
     def __init__(self, car, cdr: List) -> None:
@@ -92,7 +123,10 @@ class Pair(List):
                 return list.car
         return SchemeException(f"list-ref: index {ind} too large for list {self}")
     def __str__(self) -> str:
-        return f"(cons {self.car} {self.cdr})"
+        s = f"{self.car}"
+        for v in self.cdr:
+            s = s + " " + f"{v}"
+        return f"({s})"
 null = Null()
 def cons(cc: CC, v1, v2: List):
     return apply_cc(cc, Pair(v1, v2))
@@ -185,6 +219,7 @@ prims: typing.Dict[str, typing.Union[typing.Callable, type, None, Null]] = {
     "<": less,
     "get-attribute": get_attribute,
     "set-attribute!": set_attribute,
+    "closure-type": SchemeClosure,
     "apply": apply,
     "make-procedure": make_procedure,
     "make-python-procedure": make_python_procedure,
@@ -280,25 +315,8 @@ def evalDatum(c: Datum, e: Env):
 def evalClosure(c: Closure, e: Env):
     arg_info = c["args"]
     free = c["free"]
-    arg_types = [ai["type"] for ai in arg_info]
     body = c["code"]
-    def func(*args) -> typing.Union[LazyBox, SchemeException]:
-        if len(args) != len(arg_info):
-           return SchemeException(f"evalClosure <func>: arity mismatch(Expected {len(arg_info)} argument(s); Given {args})")
-        ne = makeEnv()
-        for fi in free:
-            fv = refEnv(e, fi)
-            if isinstance(fv, SchemeException):
-                return fv
-            pushEnv(ne, fv)
-        for at, av in zip(arg_types, args):
-            if at == "boxed":
-                pushEnv(ne, Box(av))
-            else:
-                pushEnv(ne, av)
-        # Tail-call optimization
-        return LazyBox(lambda: evalExpr(body, ne))
-    return func
+    return SchemeClosure(e, arg_info, free, body)
 def evalApp(c: App, e: Env):
     func = c["func"]
     args = c["args"]
@@ -324,4 +342,4 @@ def evalExpr(expr: CodeType, e: Env) -> typing.Union[LazyBox, typing.Any]:
         raise SchemeException(f"evalExpr: unknown expression type {expr['type']}")
     
 def run(code: str):
-    return runTrampoline(evalExpr(json.loads(code), makeEnv()))
+    return runTrampoline(evalExpr(json.loads(code), makeEnv(0)))
