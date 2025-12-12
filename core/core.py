@@ -3,6 +3,10 @@ import json
 import copy
 import typing
 import collections.abc
+import gc
+
+# Garbage collection
+gc.enable()
 
 # Types
 Seq = typing.Sequence
