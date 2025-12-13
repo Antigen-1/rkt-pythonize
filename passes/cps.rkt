@@ -1,5 +1,5 @@
 #lang racket/base
-(require nanopass/base uuid "../core/main.rkt")
+(require nanopass/base "../core/main.rkt")
 (provide L1 parse-L1 unparse-L1 cps)
 
 (define-language L1
@@ -26,7 +26,7 @@
             (,e (lambda (value)
                   (cc (set! ,x value))))))
         ((lambda (,x* ...) ,[body*])
-         (define cc (uuid-symbol))
+         (define cc (gensym 'cc))
          `(lambda (cc)
             (cc
              (lambda (,cc ,x* ...)
@@ -42,14 +42,14 @@
                        (,e1 cc)
                        (,e2 cc))))))
         ((let/cc ,x ,[body])
-         (define cc (uuid-symbol))
+         (define cc (gensym 'cc))
          `(lambda (,cc)
             ((lambda (,x) (,body ,cc))
              (lambda (_ x) (,cc x)))))
         ((,[e0] ,[e*] ...)
          (define syms (build-list (length (cons e0 e*))
-                                  (lambda (_) (uuid-symbol))))
-         (define cc (uuid-symbol))
+                                  (lambda (_) (gensym 'e))))
+         (define cc (gensym 'cc))
          `(lambda (,cc)
             ,(foldr
               (lambda (sym e expr)

@@ -1,5 +1,5 @@
 #lang racket/base
-(require nanopass/base "../core/main.rkt" uuid racket/list)
+(require nanopass/base "../core/main.rkt" racket/list)
 (provide L0 parse-L0 unparse-L0 L0-uniquify)
 
 (define (L0-uniquify code (env (hasheq)))
@@ -13,7 +13,7 @@
                                  'lambda
                                  "Duplicate identifier ~a"
                                  sym))))
-           (define rx* (build-list (length x*) (lambda (_) (uuid-symbol))))
+           (define rx* (map gensym x*))
            (define nenv
              (foldl
               (lambda (x rx env)
