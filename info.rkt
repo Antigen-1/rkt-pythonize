@@ -4,7 +4,7 @@
 (define build-deps '("scribble-lib" "racket-doc" "rackunit-lib"))
 (define scribblings '(("scribblings/rkt-pythonize.scrbl" ())))
 (define pkg-desc "My Scheme2Python Compiler")
-(define version "37.0")
+(define version "38.0")
 (define pkg-authors '(zhanghao))
 (define license '(Apache-2.0 OR MIT))
 (define racket-launcher-names '("rkt-pythonize"))

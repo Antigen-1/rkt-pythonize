@@ -1,7 +1,7 @@
 #lang racket/base
 
 (module+ test
-  (require rackunit racket/system racket/file racket/pretty racket/list))
+  (require rackunit racket/system racket/file racket/pretty))
 
 ;; Notice
 ;; To install (from within the package directory):
@@ -29,9 +29,10 @@
          "passes/named-let.rkt" "passes/cond.rkt" "passes/chain.rkt" "passes/vm.rkt"
          "passes/stream.rkt" "passes/more-cond.rkt" "passes/cond-explicit.rkt" "passes/beta-reduce.rkt"
          "passes/partial-evaluate.rkt" "passes/L0-uniquify.rkt" "passes/main.rkt"
+         "script/script.rkt"
          racket/contract)
-(provide L parse-L unparse-L current-primitives
-         (contract-out (rename compile compile-L
+(provide L parse-L unparse-L LS parse-LS unparse-LS current-primitives
+         (contract-out (rename compile compile-scheme-code
                                (->* (any/c path-string?)
                                     (#:raw? boolean?)
                                     any))))
@@ -42,7 +43,7 @@
         e
         (loop (- n 1) (p e)))))
 
-(define (compile code dest #:raw? (raw? #f))
+(define (compile code dest #:raw? (raw? #f) #:script? (script? #f))
   ((compose1
     (lambda (code) (compile-L0 code dest #:raw? raw?))
     L0-uniquify
@@ -60,7 +61,9 @@
     expand-stream
     expand-more-cond
     make-cond-explicit
-    parse-L)
+    (if script? 
+      (compose1 LS->L parse-LS)
+      parse-L))
    code))
 
 (module+ test
@@ -69,12 +72,12 @@
   ;; required by another module.
 
   (define python-exe (or (find-executable-path "python3") (find-executable-path "python")))
-  (define (test code output)
+  (define (test code output #:script? (script? #f))
     (test-begin
       (pretty-write code)
       (let ((temp (make-temporary-file)))
         (displayln "Compilation:")
-        (time (compile code temp))
+        (time (compile code temp #:script? script?))
         (displayln "Evaluation:")
         (check-equal?
          (let ((out (open-output-string)))
@@ -376,6 +379,12 @@
                                       (append (sort (@ pl 0)) (cons first (sort (@ pl 1))))))))))
                 (print (sort (array-list->linked-list ',test-list))))
           (string-append (format "~a" (sort test-list <)) "\n")))
+  ;; Scripting
+  (test '(#%script-begin
+          (define for-each (lambda (p l) (if (eq? l null) none (begin (p (car l)) (for-each p (cdr l))))))
+          (for-each print (cons 1 (cons 2 (cons 3 null)))))
+        "1\n2\n3\n"
+        #:script? #t)
   ;; Benchmark
   (test '(letrec ((builtin (dynamic-require "builtins" none))
                   (print (#%vm-procedure (=> builtin "print") 1))
@@ -412,12 +421,14 @@
   (require racket/cmdline racket/contract racket/match racket/list raco/command-name)
   (define dest (box #f))
   (define raw? (box #f))
+  (define script? (box #f))
   (command-line
     #:program (short-program+command-name)
     #:once-each
     [("-o" "--output") o "Where to write generated code" (set-box! dest o)]
     [("-r" "--raw") "Enable the compiler to generate raw json syntax tree" (set-box! raw? #t)]
     [("-c" "--core") "Display the core evaluator through standard output" (displayln py-lib-string)]
+    [("-s" "--script") "Use input files as scripts" (set-box! script? #t)]
     #:ps
     "If there is at least one source file provided, the path of the first source file will be used to automatically generate an output file path."
     "This file path will be used if both `-o` and `--output` are omitted."
@@ -426,11 +437,13 @@
     (match sources
       ((list source0 sources ...)
        (define raw?-bool (unbox raw?))
+       (define script?-bool (unbox script?))
        (define/contract dest-path path-string?
          (or (unbox dest) (path-replace-extension source0 (if raw?-bool ".json" ".py"))))
        (compile
         #:raw? raw?-bool
-        (cons 'begin
+        #:script? script?-bool
+        (cons (if script?-bool '#%script-begin 'begin)
               (append*
                (map
                 (lambda (source)

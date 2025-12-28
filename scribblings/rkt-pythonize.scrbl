@@ -25,6 +25,7 @@ This library has been tested against Python3.10.
 @item{Stream}
 @item{Inlining}
 @item{Partial evaluation}
+@item{Scripting}
 ]
 
 @section{Syntax}
@@ -32,6 +33,10 @@ This library has been tested against Python3.10.
 @codeblock[#:keep-lang-line? #f]{
 #:lang nanopass
 @(pretty-format #:mode 'write (language->s-expression L))
+}
+@codeblock[#:keep-lang-line? #f]{
+#:lang nanopass
+@(pretty-format #:mode 'write (language->s-expression LS))
 }
 
 @section{Default Primitives}
@@ -43,6 +48,9 @@ This library has been tested against Python3.10.
 @defparam[current-primitives primitives (listof symbol?)]
 
 @defthing[#:kind "language" L any/c]
-@defproc[#:kind "compiler" (compile-L (code any/c) (dest path-string?) (#:raw? raw? boolean? #f)) any]
+@defthing[#:kind "language" LS any/c]
+@defproc[#:kind "compiler" (compile-scheme-code (code any/c) (dest path-string?) (#:raw? raw? boolean? #f) (#:script? script? boolean? #f)) any]
 @defproc[#:kind "parser" (parse-L (code any/c)) any]
 @defproc[#:kind "unparser" (unparse-L (s-exp any/c)) any]
+@defproc[#:kind "parser" (parse-LS (code any/c)) any]
+@defproc[#:kind "unparser" (unparse-LS (s-exp any/c)) any]
