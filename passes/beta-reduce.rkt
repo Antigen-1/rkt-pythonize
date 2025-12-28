@@ -89,12 +89,8 @@
                                     ;; The variable must not be set!
                                     ;; The value must not be modified
                                     (and (not (memq 'set u))
-                                         (and
-                                          (= (length u) 1)
-                                          (or (datum? e)
-                                              (variable? e)
-                                              (lambda? e)
-                                              (primitive? e))))
+                                         (= (length u) 1)
+                                         (immediate? e))
                                      (cons (replace-id-with (car t) x e)
                                            (cdr t))
                                      (if (and
