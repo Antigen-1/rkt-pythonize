@@ -85,16 +85,16 @@
                       ;; Replace identifers that are not assigned using set! with their values
                       (ntable (foldr
                                (lambda (x u e t)
-                                 (if (or
-                                      ;; Primitives cannot be assigned
-                                      ;; Primitives and variables respectively refer to one single object when there is no assignment
-                                      (primitive? e)
-                                      (and (not (memq 'set u))
-                                           (variable? e))
-                                      (and (not (memq 'set u))
-                                           (= (length u) 1)
-                                           (or (datum? e)
-                                               (lambda? e))))
+                                 (if
+                                    ;; The variable must not be set!
+                                    ;; The value must not be modified
+                                    (and (not (memq 'set u))
+                                         (and
+                                          (= (length u) 1)
+                                          (or (datum? e)
+                                              (variable? e)
+                                              (lambda? e)
+                                              (primitive? e))))
                                      (cons (replace-id-with (car t) x e)
                                            (cdr t))
                                      (if (and
