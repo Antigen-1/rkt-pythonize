@@ -293,6 +293,7 @@
   ;; Error
   (test `(error "") "")
   (test `(raise "") "")
+  (test `(print (error "")) "")
   ;; Stream
   (test '(letrec ((mod (dynamic-require "builtins" none))
                   (print (#%vm-procedure (=> mod "print") 1))
