@@ -281,8 +281,7 @@
         "1 2\n")
   (test '(letrec ((mod (dynamic-require "builtins" none))
                   (print (#%vm-procedure (=> mod "print") 1)))
-           (print (vm-apply (#%scm-procedure + 2)
-                            '(1 2)))
+           (print (=> (vm-apply (#%scm-procedure + 2) '(1 2)) "value"))
            )
         "3\n")
   (test '(letrec ((mod (dynamic-require "builtins" none))
@@ -291,6 +290,9 @@
                      '(1 2 3))
            )
         "1 2 3\n")
+  ;; Error
+  (test `(error "") "")
+  (test `(raise "") "")
   ;; Stream
   (test '(letrec ((mod (dynamic-require "builtins" none))
                   (print (#%vm-procedure (=> mod "print") 1))

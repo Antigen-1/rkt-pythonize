@@ -16,16 +16,26 @@ Env = list
 class SchemeException(Exception):
     pass
 
+# Monad
+class Value(object):
+    __slots__ = ("value",)
+    def __init__(self, value) -> None:
+        self.value = value
+class Result(Value):
+    pass
+class Error(Value):
+    pass
+
 # Environment representation
 def makeEnv(l : int) -> Env:
     return [0] * l
 def refEnv(e: Env, n: int):
     if n >= len(e):
-        return SchemeException(f"refEnv: index {n} too large for environment {e}")
+        return Error(SchemeException(f"refEnv: index {n} too large for environment {e}"))
     return e[n]
 def setEnv(e: Env, n: int, v):
     if len(e) <= n:
-        return SchemeException(f"setEnv: index {n} too large for environment {e}")
+        return Error(SchemeException(f"setEnv: index {n} too large for environment {e}"))
     e[n] = v
     return None
 
@@ -42,6 +52,8 @@ def get_attribute(cc: CC, obj, name):
 def set_attribute(cc: CC, obj, name, value):
     setattr(obj, name, value)
     return apply_cc(cc, None)
+def _raise(cc: CC, v):
+    return cc(Error(v))
 # Procedures
 ####################################################
 # Closures
@@ -56,7 +68,7 @@ class SchemeClosure(object):
         self.code = code
     def __call__(self, *args):
         if len(args) != self.arg_num:
-           return SchemeException(f"SchemeClosure: arity mismatch(Expected {self.arg_num} argument(s); Given {args})")
+           return Error(SchemeException(f"SchemeClosure: arity mismatch(Expected {self.arg_num} argument(s); Given {args})"))
         ne = makeEnv(self.arg_num + self.free_num)
         for fi, si in zip(self.free, range(self.free_num)):
             fv = refEnv(self.base, fi)
@@ -65,7 +77,7 @@ class SchemeClosure(object):
             setEnv(ne, si, fv)
         for at, av, oi in zip(self.arg_type, args, range(0, self.arg_num)):
             if at == "boxed":
-                setEnv(ne, oi + self.free_num, Box(av))
+                setEnv(ne, oi + self.free_num, Value(av))
             else:
                 setEnv(ne, oi + self.free_num, av)
         return LazyBox(lambda : evalExpr(self.code, ne))
@@ -80,7 +92,7 @@ def make_procedure(cc: CC, proc):
 def make_python_procedure(cc: CC, proc, arity):
     def func(*args):
         if arity and (arity != len(args)):
-            raise SchemeException(f"make-python-procedure <func>: arity mismatch(expected: {arity} argument(s); given: {args})")
+            return Error(SchemeException(f"make-python-procedure <func>: arity mismatch(expected: {arity} argument(s); given: {args})"))
         return runTrampoline(apply(lambda x:x, proc, args))
     return apply_cc(cc, func)
 ####################################################
@@ -93,8 +105,9 @@ class Null(List):
     def __len__(self):
         return 0
     def __getitem__(self, ind):
-        assert ind >= 0
-        return SchemeException(f"list-ref: index {ind} too large for list {self}")
+        if ind < 0:
+            return Error(SchemeException(f"list-ref: index {ind} less than 0"))
+        return Error(SchemeException(f"list-ref: index {ind} too large for list {self}"))
     def __str__(self) -> str:
         return "()"
 class Pair(List):
@@ -115,17 +128,18 @@ class Pair(List):
             list = list.cdr
         return length
     def __getitem__(self, ind):
-        assert ind >= 0
+        if ind < 0:
+            return Error(SchemeException(f"list-ref: index {ind} less than 0"))
         offset = ind
         list = self
         while offset>0:
             if isinstance(list, Null):
-                return SchemeException(f"list-ref: index {ind} too large for list {self}")
+                return Error(SchemeException(f"list-ref: index {ind} too large for list {self}"))
             offset -= 1
             list = list.cdr
         if isinstance(list, Pair):
                 return list.car
-        return SchemeException(f"list-ref: index {ind} too large for list {self}")
+        return Error(SchemeException(f"list-ref: index {ind} too large for list {self}"))
     def __str__(self) -> str:
         s = f"{self.car}"
         for v in self.cdr:
@@ -182,17 +196,15 @@ class Stream(object):
     def __init__(self, car: typing.Callable[[], typing.Any], cdr: typing.Callable[[], typing.Any]):
         self.car = car
         self.cdr = cdr
-class Box(object):
-    __slots__ = ("value",)
-    def __init__(self, value) -> None:
-        self.value = value
-def set_box(cc: CC, b: Box, v):
+def set_box(cc: CC, b: Value, v):
     b.value = v
     return apply_cc(cc, None)
 def box(cc: CC, v):
-    return apply_cc(cc, Box(v))
-def unbox(cc: CC, b: Box):
+    return apply_cc(cc, Value(v))
+def unbox(cc: CC, b: Value):
     return apply_cc(cc, b.value)
+def _error(cc: CC, msg: str):
+    return cc(Error(SchemeException(msg)))
 none = None
 object_type = object
 prims: typing.Dict[str, typing.Union[typing.Callable, type, None, Null]] = {
@@ -223,6 +235,8 @@ prims: typing.Dict[str, typing.Union[typing.Callable, type, None, Null]] = {
     "<": less,
     "get-attribute": get_attribute,
     "set-attribute!": set_attribute,
+    "raise": _raise,
+    "error": _error,
     "closure-type": SchemeClosure,
     "apply": apply,
     "make-procedure": make_procedure,
@@ -233,7 +247,8 @@ prims: typing.Dict[str, typing.Union[typing.Callable, type, None, Null]] = {
     "stream-type": Stream,
     "object-type": object_type,
     "linked-list-type": List,
-    "box-type": Box,
+    "box-type": Value,
+    "exn-type": SchemeException,
     "none": none,
 }
 
@@ -244,13 +259,13 @@ class LazyBox(object):
         self.func = func
     def __call__(self):
         return self.func()
-def runTrampoline(b):
+def runTrampoline(b : typing.Union[Error, LazyBox, typing.Any]) -> typing.Union[Result, Error]:
     r = b
     while isinstance(r, LazyBox):
         r = r()
-    if isinstance(r, SchemeException):
-        raise r
-    return r
+    if isinstance(r, Error):
+        return r
+    return Result(r)
 
 # AST
 # TypedDicts for AST nodes
@@ -302,7 +317,9 @@ def evalIf(c: If, e: Env):
     then = c["then"]
     otherwise = c["otherwise"]
     cond_v = runTrampoline(evalExpr(cond, e))
-    if cond_v is False:
+    if isinstance(cond_v, Error):
+        return cond_v
+    elif cond_v.value is False:
         return evalExpr(otherwise, e)
     else:
         return evalExpr(then, e)
@@ -325,11 +342,16 @@ def evalApp(c: App, e: Env):
     func = c["func"]
     args = c["args"]
     func_v = runTrampoline(evalExpr(func, e))
+    if isinstance(func_v, Error):
+        return func_v
     args_l = []
     for arg in args:
-        args_l.append(runTrampoline(evalExpr(arg, e)))
-    return func_v(*args_l)
-def evalExpr(expr: CodeType, e: Env) -> typing.Union[LazyBox, typing.Any]:
+        v = runTrampoline(evalExpr(arg, e))
+        if isinstance(v, Error):
+            return v
+        args_l.append(v.value)
+    return func_v.value(*args_l)
+def evalExpr(expr: CodeType, e: Env) -> typing.Union[LazyBox, Error, typing.Any]:
     if is_if(expr):
         return evalIf(expr, e)
     elif is_ref(expr):
@@ -343,7 +365,7 @@ def evalExpr(expr: CodeType, e: Env) -> typing.Union[LazyBox, typing.Any]:
     elif is_app(expr):
         return evalApp(expr, e)
     else:
-        raise SchemeException(f"evalExpr: unknown expression type {expr['type']}")
+        return Error(SchemeException(f"evalExpr: unknown expression type {expr['type']}"))
     
 def run(code: str):
     return runTrampoline(evalExpr(json.loads(code), makeEnv(0)))

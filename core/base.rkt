@@ -19,12 +19,13 @@
                      apply make-procedure make-python-procedure vm-apply
                      dynamic-require
                      get-attribute set-attribute!
+                     raise error
                      none
                      ! @ ? <! length set-box! unbox box cons car cdr null
                      not
                      equal? eq?
                      + - * / quotient modulo negate > <
-                     is-a? object-type stream-type box-type closure-type
+                     is-a? object-type stream-type box-type closure-type exn-type
                      ))
 
 (define current-primitives (make-parameter primitives))
