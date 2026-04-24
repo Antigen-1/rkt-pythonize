@@ -8,7 +8,7 @@ import gc
 # Garbage collection
 gc.enable()
 
-# Types
+# Basic types
 Seq = typing.Sequence
 Env = list
 
@@ -59,7 +59,7 @@ def _raise(cc: CC, v):
 # Closures
 class SchemeClosure(object):
     __slots__ = ("base", "arg_type", "arg_num", "free", "free_num", "code")
-    def __init__(self, base: list, arg_info: Seq['Argument'], free: Seq[int], code: 'CodeType') -> None:
+    def __init__(self, base: list, arg_info: Seq['Argument'], free: Seq[int], code: typing.Callable[[Env], typing.Any]) -> None:
         self.base = base
         self.arg_type = [ai["type"] for ai in arg_info]
         self.arg_num = len(arg_info)
@@ -80,7 +80,7 @@ class SchemeClosure(object):
                 setEnv(ne, oi + self.free_num, Value(av))
             else:
                 setEnv(ne, oi + self.free_num, av)
-        return LazyBox(lambda : evalExpr(self.code, ne))
+        return LazyBox(lambda : self.code(ne))
 def vm_apply(cc: CC, proc, args):
     return apply_cc(cc, proc(*args))
 def apply(cc: CC, proc, args):
@@ -311,61 +311,96 @@ def is_datum(c: CodeType) -> typing.TypeGuard[Datum]:
 def is_app(c: CodeType) -> typing.TypeGuard[App]:
     return c["type"] == "app"
 
-# Evaluator
-def evalIf(c: If, e: Env):
-    cond = c["cond"]
-    then = c["then"]
-    otherwise = c["otherwise"]
-    cond_v = runTrampoline(evalExpr(cond, e))
-    if isinstance(cond_v, Error):
-        return cond_v
-    elif cond_v.value is False:
-        return evalExpr(otherwise, e)
-    else:
-        return evalExpr(then, e)
-def evalRef(c: Ref, e: Env):
+# Analyzers
+Analyzed = typing.Union[Error, typing.Callable[[Env], typing.Any]]
+def analyzeIf(c: If) -> Analyzed:
+    cond = analyzeExpr(c["cond"])
+    if isinstance(cond, Error):
+        return cond
+    then = analyzeExpr(c["then"])
+    if isinstance(then, Error):
+        return then
+    otherwise = analyzeExpr(c["otherwise"])
+    if isinstance(otherwise, Error):
+        return otherwise
+    def func(e: Env):
+        cond_v = runTrampoline(cond(e))
+        if isinstance(cond_v, Error):
+            return cond_v
+        elif cond_v.value is False:
+            return otherwise(e)
+        else:
+            return then(e)
+    return func
+def analyzeRef(c: Ref) -> Analyzed:
     loc = c["location"]
-    return refEnv(e, loc)
-def evalPrim(c: Prim, e: Env):
+    def func(e: Env):
+        return refEnv(e, loc)
+    return func
+def analyzePrim(c: Prim) -> Analyzed:
     prim = c["name"]
-    return prims[prim]
-def evalDatum(c: Datum, e: Env):
+    def func(e: Env):
+        return prims[prim]
+    return func
+def analyzeDatum(c: Datum) -> Analyzed:
     v = c["value"]
-    # Avoid mutating objects in the abstract syntax tree
-    return copy.deepcopy(v)
-def evalClosure(c: Closure, e: Env):
+    def func(e: Env):
+        # Avoid mutating objects in the abstract syntax tree
+        return copy.deepcopy(v)
+    return func
+def analyzeClosure(c: Closure) -> Analyzed:
     arg_info = c["args"]
     free = c["free"]
-    body = c["code"]
-    return SchemeClosure(e, arg_info, free, body)
-def evalApp(c: App, e: Env):
-    func = c["func"]
-    args = c["args"]
-    func_v = runTrampoline(evalExpr(func, e))
-    if isinstance(func_v, Error):
-        return func_v
-    args_l = []
-    for arg in args:
-        v = runTrampoline(evalExpr(arg, e))
-        if isinstance(v, Error):
-            return v
-        args_l.append(v.value)
-    return func_v.value(*args_l)
-def evalExpr(expr: CodeType, e: Env) -> typing.Union[LazyBox, Error, typing.Any]:
+    body = analyzeExpr(c["code"])
+    if isinstance(body, Error):
+        return body
+    def func(e: Env):
+        return SchemeClosure(e, arg_info, free, body)
+    return func
+def analyzeApp(c: App) -> Analyzed:
+    func = analyzeExpr(c["func"])
+    if isinstance(func, Error):
+        return func
+    arg_codes = c["args"]
+    args = []
+    for arg_code in arg_codes:
+        arg = analyzeExpr(arg_code)
+        if isinstance(arg, Error):
+            return arg
+        args.append(arg)
+    def helper(e: Env):
+        func_v = runTrampoline(func(e))
+        if isinstance(func_v, Error):
+            return func_v
+        args_l = []
+        for arg in args:
+            v = runTrampoline(arg(e))
+            if isinstance(v, Error):
+                return v
+            args_l.append(v.value)
+        return func_v.value(*args_l)
+    return helper
+def analyzeExpr(expr: CodeType) -> Analyzed:
     if is_if(expr):
-        return evalIf(expr, e)
+        return analyzeIf(expr)
     elif is_ref(expr):
-        return evalRef(expr, e)
+        return analyzeRef(expr)
     elif is_prim(expr):
-        return evalPrim(expr, e)
+        return analyzePrim(expr)
     elif is_datum(expr):
-        return evalDatum(expr, e)
+        return analyzeDatum(expr)
     elif is_closure(expr):
-        return evalClosure(expr, e)
+        return analyzeClosure(expr)
     elif is_app(expr):
-        return evalApp(expr, e)
+        return analyzeApp(expr)
     else:
         return Error(SchemeException(f"evalExpr: unknown expression type {expr['type']}"))
     
+def evalExpr(code: CodeType, e: Env):
+    a = analyzeExpr(code)
+    if isinstance(a, Error):
+        return a
+    return runTrampoline(a(e))
+
 def run(code: str):
-    return runTrampoline(evalExpr(json.loads(code), makeEnv(0)))
+    return evalExpr(json.loads(code), makeEnv(0))

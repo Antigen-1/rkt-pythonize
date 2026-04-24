@@ -294,6 +294,8 @@
   (test `(error "") "")
   (test `(raise "") "")
   (test `(print (error "")) "")
+  (test `(if (raise "") (print "") (print "")) "")
+  (test `((error "") "") "")
   ;; Stream
   (test '(letrec ((mod (dynamic-require "builtins" none))
                   (print (#%vm-procedure (=> mod "print") 1))
