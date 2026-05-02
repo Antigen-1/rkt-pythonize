@@ -71,7 +71,8 @@
   ;; or with `raco test`. The code here does not run when this file is
   ;; required by another module.
 
-  (define python-exe (or (find-executable-path "python3") (find-executable-path "python")))
+  (define python-exe (or (cond ((getenv "TEST_PYTHON_EXE") => find-executable-path) (else #f))
+                         (find-executable-path "python3") (find-executable-path "python")))
   (define (test code output #:script? (script? #f))
     (test-begin
       (pretty-write code)

@@ -112,11 +112,11 @@ class Null(List):
         return "()"
 class Pair(List):
     __slots__ = ("car", "cdr")
-    def __init__(self, car, cdr: List) -> None:
+    def __init__(self, car, cdr: 'LinkedList') -> None:
         self.car = car
         self.cdr = cdr
     def __iter__(self) -> typing.Iterator:
-        list = self
+        list = self # type: 'LinkedList'
         while isinstance(list, Pair):
             yield list.car
             list = list.cdr
@@ -145,8 +145,9 @@ class Pair(List):
         for v in self.cdr:
             s = s + " " + f"{v}"
         return f"({s})"
+LinkedList = typing.Union[Pair, Null]
 null = Null()
-def cons(cc: CC, v1, v2: List):
+def cons(cc: CC, v1, v2: LinkedList):
     return apply_cc(cc, Pair(v1, v2))
 def car(cc: CC, l: Pair):
     return apply_cc(cc, l.car)
@@ -270,31 +271,35 @@ def runTrampoline(b : typing.Union[Error, LazyBox, typing.Any]) -> typing.Union[
 # AST
 # TypedDicts for AST nodes
 class CodeType(typing.TypedDict):
-    type: typing.Literal["begin", "if", "set!", "var", "prim", "datum", "lambda", "app"]
+    type: typing.Union[
+        typing.Literal["closure"], 
+        typing.Literal["if"],
+        typing.Literal["ref"],
+        typing.Literal["prim"],
+        typing.Literal["datum"],
+        typing.Literal["app"],
+        ]
 class Argument(typing.TypedDict):
-    type: typing.Literal["boxed", "unboxed"]
+    type: typing.Union[
+        typing.Literal["boxed"],
+        typing.Literal["unboxed"],
+    ]
 class Closure(CodeType, total=True):
-    type: typing.Literal["closure"]
     args: Seq[Argument]
     free: Seq[int]
     code: CodeType
 class If(CodeType, total=True):
-    type: typing.Literal["if"]
     cond: CodeType
     then: CodeType
     otherwise: CodeType
 class Ref(CodeType, total=True):
-    type: typing.Literal["ref"]
     location: int
 class Prim(CodeType, total=True):
-    type: typing.Literal["prim"]
     name: str
 JSON_VALUE: typing.TypeAlias = typing.Union[str, int, float, bool, None, typing.List['JSON_VALUE'], typing.Dict[str, 'JSON_VALUE']]
 class Datum(CodeType, total=True):
-    type: typing.Literal["datum"]
     value: JSON_VALUE
 class App(CodeType, total=True):
-    type: typing.Literal["app"]
     func: CodeType
     args: Seq[CodeType]
 # Type guards for AST
