@@ -71,9 +71,12 @@
   ;; or with `raco test`. The code here does not run when this file is
   ;; required by another module.
 
+  (provide example-table)
+
   (define python-exe (or (cond ((getenv "TEST_PYTHON_EXE") => find-executable-path) (else #f))
                          (find-executable-path "python3") (find-executable-path "python")))
-  (define (test code output #:script? (script? #f))
+  (define example-table (make-hash))
+  (define (test code output #:script? (script? #f) #:example? (example? #f))
     (test-begin
       (pretty-write code)
       (let ((temp (make-temporary-file)))
@@ -88,7 +91,8 @@
                (system* python-exe temp))))
            (get-output-string out))
          output)
-        (delete-directory/files temp))))
+        (delete-directory/files temp)
+        (if example? (hash-set! example-table code output) (void)))))
 
   ;; Uniquify
   (test '((lambda (mod)
@@ -194,7 +198,8 @@
                                (set! s r)
                                (proc (- n 1)))))))
                (proc 10))))
-        "0\n1\n1\n2\n3\n5\n8\n13\n21\n34\n")
+        "0\n1\n1\n2\n3\n5\n8\n13\n21\n34\n"
+        #:example? #t)
   ;; Named let
   (test '(let ((mod (dynamic-require "builtins" none)))
            (let ((print (lambda (v)
@@ -362,6 +367,38 @@
            )
         "3\n0.5\n0.5\n0.0\n1.0\n-1.0\nTrue\nTrue\nTrue\nFalse\nFalse\nFalse\nTrue\nTrue\nFalse\nTrue\nFalse\nFalse\n1\n2\n3\n4\n1\nTrue\nFalse\nFalse\n")
   ;; Linked lists
+  (let ((test-list (build-list 40 (lambda (n) (random 0 10000)))))
+    (test `(letrec ((array-list->linked-list (lambda (al) (let ((len (length al))) (let loop ((i 0)) (if (equal? i len) null (cons (@ al i) (loop (+ i 1))))))))
+                    (append (lambda (l1 l2)
+                              (if (eq? l1 null)
+                                  l2
+                                  (cons (car l1) (append (cdr l1) l2)))))
+                    (partition (lambda (n l p)
+                                  (if (eq? l null)
+                                      (cons null (cons null null))
+                                      (let ((first (car l))
+                                            (sl (partition n (cdr l) p)))
+                                        (if (p first n)
+                                            (cons (cons first (@ sl 0)) (cons (@ sl 1) null))
+                                            (cons (@ sl 0) (cons (cons first (@ sl 1)) null)))))))
+                    (sort (lambda (l)
+                            (if (eq? l null)
+                                l
+                                (let ((first (car l))
+                                      (rest (cdr l)))
+                                    (let ((pl (partition first rest <)))
+                                      (append (sort (@ pl 0)) (cons first (sort (@ pl 1))))))))))
+                (print (sort (array-list->linked-list ',test-list))))
+          (string-append (format "~a" (sort test-list <)) "\n")
+          #:example? #t))
+  ;; Scripting
+  (test '(#%script-begin
+          (define for-each (lambda (p l) (if (eq? l null) none (begin (p (car l)) (for-each p (cdr l))))))
+          (for-each print (cons 1 (cons 2 (cons 3 null)))))
+        "1\n2\n3\n"
+        #:script? #t
+        #:example? #t)
+  ;; Benchmark
   (let ((test-list (build-list 5000 (lambda (n) (random 0 10000)))))
     (test `(letrec ((array-list->linked-list (lambda (al) (let ((len (length al))) (let loop ((i 0)) (if (equal? i len) null (cons (@ al i) (loop (+ i 1))))))))
                     (append (lambda (l1 l2)
@@ -385,13 +422,6 @@
                                       (append (sort (@ pl 0)) (cons first (sort (@ pl 1))))))))))
                 (print (sort (array-list->linked-list ',test-list))))
           (string-append (format "~a" (sort test-list <)) "\n")))
-  ;; Scripting
-  (test '(#%script-begin
-          (define for-each (lambda (p l) (if (eq? l null) none (begin (p (car l)) (for-each p (cdr l))))))
-          (for-each print (cons 1 (cons 2 (cons 3 null)))))
-        "1\n2\n3\n"
-        #:script? #t)
-  ;; Benchmark
   (test '(letrec ((builtin (dynamic-require "builtins" none))
                   (print (#%vm-procedure (=> builtin "print") 1))
                   (stream-filter (lambda (p s)
@@ -415,7 +445,8 @@
              (if (equal? n 0)
                  (print (stream-car ps))
                  (loop (- n 1) (stream-cdr ps)))))
-        "1993\n")
+        "1993\n"
+        #:example? #t)
 )   
 
 (module+ main
