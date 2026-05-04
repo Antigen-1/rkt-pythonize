@@ -90,7 +90,7 @@ This library has been tested against Python3.10.
 @codeblock{
 (let ((mod (dynamic-require "builtins" none)))
   (let ((print (get-attribute mod "print")))
-    (vm-apply print (@ '(("1")) 0))))
+    (vm-apply print (@"@" '("1") 0))))
 }
 
 @subsection{Fibonacci}
@@ -160,7 +160,7 @@ This library has been tested against Python3.10.
          (number-stream (let loop ((i 0))
                           (if (equal? i (length numbers))
                               none
-                              (stream-cons (@ numbers i)
+                              (stream-cons (@"@" numbers i)
                                            (loop (+ i 1)))))))
   (stream-for-each print number-stream)
   (stream-for-each print number-stream))
