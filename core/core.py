@@ -1,16 +1,31 @@
+from __future__ import annotations
+
+import collections.abc
+import copy
+import gc
 import importlib
 import json
-import copy
 import typing
-import collections.abc
-import gc
 
-# Garbage collection
-gc.enable()
-
-# Basic types
+# Static type definitions
 Seq = typing.Sequence
 Env = list
+CC = typing.Callable[[typing.Any], typing.Any]
+CodeTypeNames = typing.Literal["if", "ref", "prim", "datum", "app", "closure"]
+CodeTypes = typing.Union["Closure", "If", "App", "Ref", "Datum", "Prim"]
+JSON_VALUE: typing.TypeAlias = typing.Union[
+    str,
+    int,
+    float,
+    bool,
+    None,
+    typing.List["JSON_VALUE"],
+    typing.Dict[str, "JSON_VALUE"],
+]
+Analyzed = typing.Union["Error", typing.Callable[[Env], typing.Any]]
+
+# Garbage collector is enabled by default.
+gc.enable()
 
 # Exceptions
 class SchemeException(Exception):
@@ -21,26 +36,25 @@ class Value(object):
     __slots__ = ("value",)
     def __init__(self, value) -> None:
         self.value = value
-class Result(Value):
-    pass
 class Error(Value):
     pass
 
 # Environment representation
 def makeEnv(l : int) -> Env:
-    return [0] * l
+    return [None]*l
 def refEnv(e: Env, n: int):
-    if n >= len(e):
+    try:
+        return e[n]
+    except IndexError:
         return Error(SchemeException(f"refEnv: index {n} too large for environment {e}"))
-    return e[n]
 def setEnv(e: Env, n: int, v):
-    if len(e) <= n:
+    try:
+        e[n] = v
+    except IndexError:
         return Error(SchemeException(f"setEnv: index {n} too large for environment {e}"))
-    e[n] = v
     return None
 
 # Utilities
-CC = typing.Callable[[typing.Any], typing.Any]
 def apply_cc(cc: CC, v):
     return cc(v)
 
@@ -68,19 +82,15 @@ class SchemeClosure(object):
         self.code = code
     def __call__(self, *args):
         if len(args) != self.arg_num:
-           return Error(SchemeException(f"SchemeClosure: arity mismatch(Expected {self.arg_num} argument(s); Given {args})"))
-        ne = makeEnv(self.arg_num + self.free_num)
-        for fi, si in zip(self.free, range(self.free_num)):
-            fv = refEnv(self.base, fi)
-            if isinstance(fv, SchemeException):
-                return fv
-            setEnv(ne, si, fv)
-        for at, av, oi in zip(self.arg_type, args, range(0, self.arg_num)):
-            if at == "boxed":
-                setEnv(ne, oi + self.free_num, Value(av))
-            else:
-                setEnv(ne, oi + self.free_num, av)
-        return LazyBox(lambda : self.code(ne))
+            return Error(SchemeException(f"SchemeClosure: arity mismatch(Expected {self.arg_num} argument(s); Given {args})"))
+        base = self.base
+        try:
+            ne = [base[fi] for fi in self.free]
+        except IndexError:
+            return Error(SchemeException(f"SchemeClosure: free index too large for environment {base}"))
+        boxed = Value
+        ne.extend(boxed(av) if at == "boxed" else av for at, av in zip(self.arg_type, args))
+        return LazyBox(self.code, ne)
 def vm_apply(cc: CC, proc, args):
     return apply_cc(cc, proc(*args))
 def apply(cc: CC, proc, args):
@@ -111,27 +121,23 @@ class Null(List):
     def __str__(self) -> str:
         return "()"
 class Pair(List):
-    __slots__ = ("car", "cdr")
+    __slots__ = ("car", "cdr", "size")
     def __init__(self, car, cdr: 'LinkedList') -> None:
         self.car = car
         self.cdr = cdr
+        self.size = 1 + (cdr.size if isinstance(cdr, Pair) else 0) # type: int
     def __iter__(self) -> typing.Iterator:
         list = self # type: 'LinkedList'
         while isinstance(list, Pair):
             yield list.car
             list = list.cdr
     def __len__(self):
-        length = 0
-        list = self
-        while isinstance(list, Pair):
-            length += 1
-            list = list.cdr
-        return length
+        return self.size
     def __getitem__(self, ind):
         if ind < 0:
             return Error(SchemeException(f"list-ref: index {ind} less than 0"))
         offset = ind
-        list = self
+        list = self # type: typing.Union[Pair, Null]
         while offset>0:
             if isinstance(list, Null):
                 return Error(SchemeException(f"list-ref: index {ind} too large for list {self}"))
@@ -206,7 +212,7 @@ def unbox(cc: CC, b: Value):
     return apply_cc(cc, b.value)
 def _error(cc: CC, msg: str):
     return cc(Error(SchemeException(msg)))
-none = None
+none = None # type: None
 object_type = object
 prims: typing.Dict[str, typing.Union[typing.Callable, type, None, Null]] = {
     "print": _print,
@@ -255,69 +261,72 @@ prims: typing.Dict[str, typing.Union[typing.Callable, type, None, Null]] = {
 
 # Trampoline
 class LazyBox(object):
-    __slots__ = ('func',)
-    def __init__(self, func: typing.Callable[[], typing.Any]):
-        self.func = func
+    __slots__ = ('code', 'env')
+    def __init__(self, code: typing.Callable[[Env], typing.Any], env: Env):
+        self.code = code
+        self.env = env
     def __call__(self):
-        return self.func()
-def runTrampoline(b : typing.Union[Error, LazyBox, typing.Any]) -> typing.Union[Result, Error]:
+        return self.code(self.env)
+def runTrampoline(b : typing.Union[Error, LazyBox, typing.Any]) -> typing.Union[Error, typing.Any]:
     r = b
-    while isinstance(r, LazyBox):
+    lazy_box_type = LazyBox
+    while type(r) is lazy_box_type:
         r = r()
-    if isinstance(r, Error):
-        return r
-    return Result(r)
+    return r
 
 # AST
 # TypedDicts for AST nodes
-class CodeType(typing.TypedDict):
-    type: typing.Union[
-        typing.Literal["closure"], 
-        typing.Literal["if"],
-        typing.Literal["ref"],
-        typing.Literal["prim"],
-        typing.Literal["datum"],
-        typing.Literal["app"],
-        ]
 class Argument(typing.TypedDict):
     type: typing.Union[
         typing.Literal["boxed"],
         typing.Literal["unboxed"],
     ]
-class Closure(CodeType, total=True):
+class Closure(typing.TypedDict, total=True):
+    type: typing.Literal["closure"]
     args: Seq[Argument]
     free: Seq[int]
-    code: CodeType
-class If(CodeType, total=True):
-    cond: CodeType
-    then: CodeType
-    otherwise: CodeType
-class Ref(CodeType, total=True):
+    code: CodeTypes
+class If(typing.TypedDict, total=True):
+    type: typing.Literal["if"]
+    cond: CodeTypes
+    then: CodeTypes
+    otherwise: CodeTypes
+class Ref(typing.TypedDict, total=True):
+    type: typing.Literal["ref"]
     location: int
-class Prim(CodeType, total=True):
+class Prim(typing.TypedDict, total=True):
+    type: typing.Literal["prim"]
     name: str
-JSON_VALUE: typing.TypeAlias = typing.Union[str, int, float, bool, None, typing.List['JSON_VALUE'], typing.Dict[str, 'JSON_VALUE']]
-class Datum(CodeType, total=True):
+class Datum(typing.TypedDict, total=True):
+    type: typing.Literal["datum"]
     value: JSON_VALUE
-class App(CodeType, total=True):
-    func: CodeType
-    args: Seq[CodeType]
-# Type guards for AST
-def is_closure(c: CodeType) -> typing.TypeGuard[Closure]:
-    return c["type"] == "closure"
-def is_if(c: CodeType) -> typing.TypeGuard[If]:
-    return c["type"] == "if"
-def is_ref(c: CodeType) -> typing.TypeGuard[Ref]:
-    return c["type"] == "ref"
-def is_prim(c: CodeType) -> typing.TypeGuard[Prim]:
-    return c["type"] == "prim"
-def is_datum(c: CodeType) -> typing.TypeGuard[Datum]:
-    return c["type"] == "datum"
-def is_app(c: CodeType) -> typing.TypeGuard[App]:
-    return c["type"] == "app"
+class App(typing.TypedDict, total=True):
+    type: typing.Literal["app"]
+    func: CodeTypes
+    args: Seq[CodeTypes]
 
 # Analyzers
-Analyzed = typing.Union[Error, typing.Callable[[Env], typing.Any]]
+def _copy_datum(v: JSON_VALUE):
+    if isinstance(v, (str, int, float, bool)) or v is None:
+        return v
+    if isinstance(v, list):
+        return [_copy_datum(item) for item in v]
+    if isinstance(v, dict):
+        return {key: _copy_datum(value) for key, value in v.items()}
+    return copy.deepcopy(v)
+
+_analyzer_dispatch: typing.Dict[
+    CodeTypeNames, 
+    typing.Callable[[CodeTypes], Analyzed]
+    ] = {}
+
+def register_analyzer(node_type: CodeTypeNames):
+    def decorator(fn: typing.Callable[[CodeTypes], Analyzed]):
+        _analyzer_dispatch[node_type] = fn
+        return fn
+    return decorator
+
+@register_analyzer("if")
 def analyzeIf(c: If) -> Analyzed:
     cond = analyzeExpr(c["cond"])
     if isinstance(cond, Error):
@@ -332,27 +341,40 @@ def analyzeIf(c: If) -> Analyzed:
         cond_v = runTrampoline(cond(e))
         if isinstance(cond_v, Error):
             return cond_v
-        elif cond_v.value is False:
+        if cond_v is False:
             return otherwise(e)
-        else:
-            return then(e)
+        return then(e)
     return func
+
+@register_analyzer("ref")
 def analyzeRef(c: Ref) -> Analyzed:
     loc = c["location"]
     def func(e: Env):
-        return refEnv(e, loc)
+        try:
+            return e[loc]
+        except IndexError:
+            return Error(SchemeException(f"refEnv: index {loc} too large for environment {e}"))
     return func
+
+@register_analyzer("prim")
 def analyzePrim(c: Prim) -> Analyzed:
     prim = c["name"]
-    def func(e: Env):
-        return prims[prim]
-    return func
+    # Pre-lookup primitive to avoid runtime dictionary access
+    try:
+        prim_value = prims[prim]
+    except KeyError:
+        return lambda e: Error(SchemeException(f"Unknown primitive: {prim}"))
+    return lambda e: prim_value
+
+@register_analyzer("datum")
 def analyzeDatum(c: Datum) -> Analyzed:
     v = c["value"]
     def func(e: Env):
         # Avoid mutating objects in the abstract syntax tree
-        return copy.deepcopy(v)
+        return _copy_datum(v)
     return func
+
+@register_analyzer("closure")
 def analyzeClosure(c: Closure) -> Analyzed:
     arg_info = c["args"]
     free = c["free"]
@@ -362,6 +384,8 @@ def analyzeClosure(c: Closure) -> Analyzed:
     def func(e: Env):
         return SchemeClosure(e, arg_info, free, body)
     return func
+
+@register_analyzer("app")
 def analyzeApp(c: App) -> Analyzed:
     func = analyzeExpr(c["func"])
     if isinstance(func, Error):
@@ -382,30 +406,32 @@ def analyzeApp(c: App) -> Analyzed:
             v = runTrampoline(arg(e))
             if isinstance(v, Error):
                 return v
-            args_l.append(v.value)
-        return func_v.value(*args_l)
+            args_l.append(v)
+        return func_v(*args_l)
     return helper
-def analyzeExpr(expr: CodeType) -> Analyzed:
-    if is_if(expr):
-        return analyzeIf(expr)
-    elif is_ref(expr):
-        return analyzeRef(expr)
-    elif is_prim(expr):
-        return analyzePrim(expr)
-    elif is_datum(expr):
-        return analyzeDatum(expr)
-    elif is_closure(expr):
-        return analyzeClosure(expr)
-    elif is_app(expr):
-        return analyzeApp(expr)
-    else:
+
+def analyzeExpr(expr: CodeTypes) -> Analyzed:
+    fn = _analyzer_dispatch.get(expr["type"])
+    if fn is None:
         return Error(SchemeException(f"evalExpr: unknown expression type {expr['type']}"))
+    return fn(expr)
     
-def evalExpr(code: CodeType, e: Env):
-    a = analyzeExpr(code)
-    if isinstance(a, Error):
-        return a
-    return runTrampoline(a(e))
+def evalExpr(code: CodeTypes, e: Env):
+    try:
+        # Disable GC during analysis phase as it's pure functional
+        gc_was_enabled = gc.isenabled()
+        if gc_was_enabled:
+            gc.disable()
+        a = analyzeExpr(code)
+        if isinstance(a, Error):
+            return a
+        if gc_was_enabled:
+            gc.enable()
+        return runTrampoline(a(e))
+    finally:
+        # Collect garbage after evaluation to free memory
+        gc.collect()
 
 def run(code: str):
-    return evalExpr(json.loads(code), makeEnv(0))
+    result = evalExpr(json.loads(code), makeEnv(0))
+    return result

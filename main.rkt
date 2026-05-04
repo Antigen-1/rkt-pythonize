@@ -282,7 +282,7 @@
         "1 2\n")
   (test '(letrec ((mod (dynamic-require "builtins" none))
                   (print (#%vm-procedure (=> mod "print") 1)))
-           (print (=> (vm-apply (#%scm-procedure + 2) '(1 2)) "value"))
+           (print (vm-apply (#%scm-procedure + 2) '(1 2)))
            )
         "3\n")
   (test '(letrec ((mod (dynamic-require "builtins" none))
