@@ -67,7 +67,7 @@ def set_attribute(cc: CC, obj, name, value):
     setattr(obj, name, value)
     return apply_cc(cc, None)
 def _raise(cc: CC, v):
-    return cc(Error(v))
+    return apply_cc(cc, Error(v))
 # Procedures
 ####################################################
 # Closures
@@ -211,7 +211,7 @@ def box(cc: CC, v):
 def unbox(cc: CC, b: Value):
     return apply_cc(cc, b.value)
 def _error(cc: CC, msg: str):
-    return cc(Error(SchemeException(msg)))
+    return apply_cc(cc, Error(SchemeException(msg)))
 none = None # type: None
 object_type = object
 prims: typing.Dict[str, typing.Union[typing.Callable, type, None, Null]] = {
@@ -256,6 +256,8 @@ prims: typing.Dict[str, typing.Union[typing.Callable, type, None, Null]] = {
     "linked-list-type": List,
     "box-type": Value,
     "exn-type": SchemeException,
+    "str-type": str,
+    "int-type": int,
     "none": none,
 }
 

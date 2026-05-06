@@ -25,7 +25,7 @@
                      not
                      equal? eq?
                      + - * / quotient modulo negate > <
-                     is-a? object-type stream-type box-type closure-type exn-type
+                     is-a? object-type stream-type box-type closure-type exn-type str-type int-type linked-list-type
                      ))
 
 (define current-primitives (make-parameter primitives))

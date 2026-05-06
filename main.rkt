@@ -28,7 +28,7 @@
 (require "core/main.rkt" "passes/uniquify.rkt" "passes/explicit.rkt" "passes/cps.rkt" "passes/quote.rkt" "passes/let.rkt"
          "passes/named-let.rkt" "passes/cond.rkt" "passes/chain.rkt" "passes/vm.rkt"
          "passes/stream.rkt" "passes/more-cond.rkt" "passes/cond-explicit.rkt" "passes/beta-reduce.rkt"
-         "passes/partial-evaluate.rkt" "passes/L0-uniquify.rkt" "passes/main.rkt"
+         "passes/partial-evaluate.rkt" "passes/L0-uniquify.rkt" "passes/handler.rkt" "passes/main.rkt"
          "script/script.rkt"
          racket/contract)
 (provide L parse-L unparse-L LS parse-LS unparse-LS current-primitives
@@ -61,6 +61,7 @@
     expand-stream
     expand-more-cond
     make-cond-explicit
+    expand-exn-handler
     (if script? 
       (compose1 LS->L parse-LS)
       parse-L))
@@ -302,6 +303,31 @@
   (test `(print (error "")) "")
   (test `(if (raise "") (print "") (print "")) "")
   (test `((error "") "") "")
+  (test `(with-handler (lambda (v) (if (is-a? v str-type) (print v) (throw v)))
+            (throw "A"))
+         "A\n")
+  (test `(with-handler (lambda (v) (if (is-a? v str-type) (print v) (throw v)))
+            (throw 1))
+         "")
+  (test `(with-handler (lambda (v) (print v))
+            (with-handler (lambda (v) (if (is-a? v str-type) (print v) (throw v)))
+              (throw 1)))
+         "1\n")
+  (test `(let/cc cc
+            (with-handler (lambda (v) (if (is-a? v str-type) (print v) (throw v)))
+              (throw (cc "A"))))
+         "")
+  (test `(with-handler (lambda (v) (if (is-a? v str-type) (print v) (throw v)))
+            ((make-procedure (lambda (s) (print (throw (@ s 0))))) "A"))
+         "A\n")
+  (test `(let/cc cc
+            (with-handler (lambda (v) (if (is-a? v str-type) (print v) (throw v)))
+              ((make-procedure (lambda (s) (throw (cc (@ s 0))))) "A")))
+         "")
+  (test `(with-handler
+            print 
+            (vm-apply (#%scm-procedure (lambda () (throw 1)) 0) '()))
+        "1\n")
   ;; Stream
   (test '(letrec ((mod (dynamic-require "builtins" none))
                   (print (#%vm-procedure (=> mod "print") 1))
