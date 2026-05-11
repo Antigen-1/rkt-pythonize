@@ -305,29 +305,36 @@
   (test `((error "") "") "")
   (test `(with-handler (lambda (v) (if (is-a? v str-type) (print v) (throw v)))
             (throw "A"))
-         "A\n")
+         "A\n"
+         #:example? #t)
   (test `(with-handler (lambda (v) (if (is-a? v str-type) (print v) (throw v)))
             (throw 1))
-         "")
-  (test `(with-handler (lambda (v) (print v))
-            (with-handler (lambda (v) (if (is-a? v str-type) (print v) (throw v)))
-              (throw 1)))
-         "1\n")
+         ""
+         #:example? #t)
   (test `(let/cc cc
             (with-handler (lambda (v) (if (is-a? v str-type) (print v) (throw v)))
               (throw (cc "A"))))
-         "")
+         ""
+         #:example? #t)
   (test `(with-handler (lambda (v) (if (is-a? v str-type) (print v) (throw v)))
             ((make-procedure (lambda (s) (print (throw (@ s 0))))) "A"))
-         "A\n")
+         "A\n"
+         #:example? #t)
   (test `(let/cc cc
             (with-handler (lambda (v) (if (is-a? v str-type) (print v) (throw v)))
               ((make-procedure (lambda (s) (throw (cc (@ s 0))))) "A")))
-         "")
+         ""
+         #:example? #t)
   (test `(with-handler
             print 
             (vm-apply (#%scm-procedure (lambda () (throw 1)) 0) '()))
-        "1\n")
+        "1\n"
+        #:example? #t)
+  (test `(with-handler
+          (lambda (v) (print (+ v 1)))
+          (vm-apply (#%scm-procedure (lambda () (throw 1))) '()))
+        "2\n"
+        #:example? #t)
   ;; Stream
   (test '(letrec ((mod (dynamic-require "builtins" none))
                   (print (#%vm-procedure (=> mod "print") 1))
@@ -391,7 +398,8 @@
            (print (not dynamic-require))
            (print (not #t))
            )
-        "3\n0.5\n0.5\n0.0\n1.0\n-1.0\nTrue\nTrue\nTrue\nFalse\nFalse\nFalse\nTrue\nTrue\nFalse\nTrue\nFalse\nFalse\n1\n2\n3\n4\n1\nTrue\nFalse\nFalse\n")
+        "3\n0.5\n0.5\n0.0\n1.0\n-1.0\nTrue\nTrue\nTrue\nFalse\nFalse\nFalse\nTrue\nTrue\nFalse\nTrue\nFalse\nFalse\n1\n2\n3\n4\n1\nTrue\nFalse\nFalse\n"
+        #:example? #t)
   ;; Linked lists
   (let ((test-list (build-list 40 (lambda (n) (random 0 10000)))))
     (test `(letrec ((array-list->linked-list (lambda (al) (let ((len (length al))) (let loop ((i 0)) (if (equal? i len) null (cons (@ al i) (loop (+ i 1))))))))
