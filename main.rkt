@@ -332,7 +332,7 @@
         #:example? #t)
   (test `(with-handler
           (lambda (v) (print (+ v 1)))
-          (vm-apply (#%scm-procedure (lambda () (throw 1))) '()))
+          (vm-apply (#%scm-procedure (lambda () (throw 1)) 0) '()))
         "2\n"
         #:example? #t)
   ;; Stream
