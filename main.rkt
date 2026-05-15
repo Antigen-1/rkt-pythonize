@@ -68,21 +68,6 @@
       parse-L))
    code))
 
-(define (compile-to-file code dest #:raw? (raw? #f) #:script? (script? #f))
-  (call-with-output-file
-   #:exists 'truncate/replace
-   dest
-   (lambda (out)
-    (if raw?
-        (void)
-        (begin (write-string py-lib-string out) (newline out)))
-    (define compiled (compile code #:script? script?))
-    (write-string 
-     (if raw?
-         compiled
-         (format "run(~s)" compiled))
-     out))))
-
 (module+ test
   ;; Any code in this `test` submodule runs when this file is run using DrRacket
   ;; or with `raco test`. The code here does not run when this file is
@@ -96,20 +81,18 @@
   (define (test code output #:script? (script? #f) #:example? (example? #f))
     (test-begin
       (pretty-write code)
-      (let ((temp (make-temporary-file)))
-        (displayln "Compilation:")
-        (time (compile-to-file code temp #:script? script?))
-        (displayln "Evaluation:")
-        (check-equal?
-         (let ((out (open-output-string)))
-           (check-true
-            (time
-             (parameterize ((current-output-port out))
-               (system* python-exe temp))))
-           (get-output-string out))
-         output)
-        (delete-directory/files temp)
-        (if example? (hash-set! example-table code output) (void)))))
+      (displayln "Compilation:")
+      (define json (time (compile code #:script? script?)))
+      (displayln "Evaluation:")
+      (check-equal?
+        (let ((out (open-output-string)))
+         (check-true
+          (time
+           (parameterize ((current-output-port out))
+             (system* python-exe core-py json))))
+         (get-output-string out))
+        output)
+      (if example? (hash-set! example-table code output) (void))))
 
   ;; Uniquify
   (test '((lambda (mod)
@@ -505,27 +488,39 @@
   ;; does not run when this file is required by another module. Documentation:
   ;; http://docs.racket-lang.org/guide/Module_Syntax.html#%28part._main-and-test%29
 
-  (require racket/cmdline racket/match racket/list raco/command-name)
+  (require racket/cmdline racket/match racket/list racket/system racket/pretty raco/command-name)
   (define dest (box #f))
-  (define raw? (box #f))
   (define script? (box #f))
+  (define json? (box #f))
+  (define python (box (or (cond ((getenv "PYTHON_EXE") => find-executable-path) (else #f))
+                          (find-executable-path "python3") 
+                          (find-executable-path "python"))))
+
+  (define (execute exe code (form 'unknown))
+    (cond ((system* exe core-py code) => void)
+          (else (raise-user-error 'rkt-pythonize "Fail to run the scheme code:\n~a" (pretty-format #:mode 'write form)))))
+
   (command-line
     #:program (short-program+command-name)
     #:once-each
     [("-o" "--output") o "Where to write generated code" (set-box! dest o)]
-    [("-r" "--raw") "Enable the compiler to generate raw json syntax tree(used only when -o/--output is supplied)" (set-box! raw? #t)]
-    [("-c" "--core") "Display the core evaluator through standard output and then exit" (displayln py-lib-string) (exit)]
     [("-s" "--script") "Use input files as scripts" (set-box! script? #t)]
+    [("-p" "--python") py "Set the python executable" (set-box! python (find-executable-path py))]
+    [("-j" "--json") "Recognize supplied files as json codes" (set-box! json? #t)]
     #:ps
-    "If there is at least one source file provided, the path of the first source file will be used to automatically generate an output file path."
-    "This file path will be used if both `-o` and `--output` are omitted."
-    "If there is no source file provided, the compiler will do nothing."
-    #:args sources
-    (match sources
-      ((list source0 sources ...)
-       (define raw?-bool (unbox raw?))
-       (define script?-bool (unbox script?))
+    "When -j/--json is not provided:"
+    "If -o/--ouput is provided, json codes will be saved to the specified file."
+    "Otherwise, json codes will be evaluated directly."
+    "When -j/--json is provided:"
+    "Exactly one json file should be provided and will then be executed."
+    #:args files
+    (define/contract python-exe 
+        path-string?
+        (unbox python))
+    (match* (files json?)
+      (((list source0 sources ...) (box #f))
        (define dest-path (unbox dest))
+       (define script?-bool (unbox script?))
 
        (define form
           (cons (if script?-bool '#%script-begin 'begin)
@@ -541,9 +536,12 @@
                           null
                           (cons v (loop)))))))
               (cons source0 sources)))))
+       (define compiled (compile #:script? script?-bool form))
 
        (if dest-path
-           (compile-to-file #:raw? raw?-bool #:script? script?-bool form dest-path)
-           (display (compile form #:script? script?))))
-      (`()
-       (void)))))
+           (call-with-output-file dest-path #:exists 'truncate/replace (lambda (out) (write-string compiled out)))
+           (execute python-exe compiled form)))
+      (((list json) (box #t))
+       (execute python-exe (file->string json)))
+      ((files json?)
+       (raise-user-error 'rkt-pythonize "Malformed arguments:\n\tfiles: ~s\n\tjson?: ~s" files (unbox json?))))))

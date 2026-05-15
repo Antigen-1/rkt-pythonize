@@ -6,6 +6,7 @@ import gc
 import importlib
 import json
 import typing
+import argparse
 
 # Static type definitions
 Seq = typing.Sequence
@@ -437,3 +438,9 @@ def evalExpr(code: CodeTypes, e: Env):
 def run(code: str):
     result = evalExpr(json.loads(code), makeEnv(0))
     return result
+
+if __name__=='__main__':
+    parser = argparse.ArgumentParser(prog='scheme', description='scheme core evaluator')
+    parser.add_argument('code')
+    args = parser.parse_args()
+    run(args.code)

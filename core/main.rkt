@@ -1,6 +1,6 @@
 #lang racket/base
-(require "base.rkt" "assignment.rkt" "closure.rkt" "check-uniquification.rkt" racket/runtime-path racket/contract json)
-(provide (contract-out (compile-L0 (-> any/c string?)))
+(require "base.rkt" "assignment.rkt" "closure.rkt" "check-uniquification.rkt" racket/runtime-path json)
+(provide compile-L0
          current-primitives
          (rename-out (parse-LS parse-L0)
                      (unparse-LS unparse-L0)
