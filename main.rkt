@@ -68,7 +68,7 @@
       parse-L))
    code))
 
-(define (compile-to-file code dest #:raw? (raw? #f) #:script? (script? #t))
+(define (compile-to-file code dest #:raw? (raw? #f) #:script? (script? #f))
   (call-with-output-file
    #:exists 'truncate/replace
    dest
