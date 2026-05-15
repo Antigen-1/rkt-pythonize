@@ -1,7 +1,7 @@
 #lang racket/base
 
 (module+ test
-  (require rackunit racket/system racket/file racket/pretty))
+  (require rackunit racket/system racket/pretty))
 
 ;; Notice
 ;; To install (from within the package directory):
@@ -30,12 +30,14 @@
          "passes/stream.rkt" "passes/more-cond.rkt" "passes/cond-explicit.rkt" "passes/beta-reduce.rkt"
          "passes/partial-evaluate.rkt" "passes/L0-uniquify.rkt" "passes/handler.rkt" "passes/main.rkt"
          "script/script.rkt"
-         racket/contract)
-(provide L parse-L unparse-L LS parse-LS unparse-LS current-primitives
+         racket/contract racket/file)
+(provide L parse-L unparse-L LS parse-LS unparse-LS current-primitives py-lib-string
          (contract-out (rename compile compile-scheme-code
-                               (->* (any/c path-string?)
-                                    (#:raw? boolean?)
+                               (->* (any/c)
+                                    (#:script? boolean?)
                                     any))))
+
+(define py-lib-string (file->string core-py))
 
 (define (repeat-pass n p e)
   (let loop ((n n) (e e))
@@ -43,13 +45,12 @@
         e
         (loop (- n 1) (p e)))))
 
-(define (compile code dest #:raw? (raw? #f) #:script? (script? #f))
+(define (compile code #:script? (script? #f))
   ((compose1
-    (lambda (code) (compile-L0 code dest #:raw? raw?))
+    compile-L0
     L0-uniquify
     cps
-    (lambda (e) (repeat-pass 5 partial-evaluate e))
-    (lambda (e) (repeat-pass 5 beta-reduce e))
+    (lambda (e) (repeat-pass 5 (compose1 partial-evaluate beta-reduce) e))
     uniquify
     make-explicit
     add-quote
@@ -67,6 +68,21 @@
       parse-L))
    code))
 
+(define (compile-to-file code dest #:raw? (raw? #f) #:script? (script? #t))
+  (call-with-output-file
+   #:exists 'truncate/replace
+   dest
+   (lambda (out)
+    (if raw?
+        (void)
+        (begin (write-string py-lib-string out) (newline out)))
+    (define compiled (compile code #:script? script?))
+    (write-string 
+     (if raw?
+         compiled
+         (format "run(~s)" compiled))
+     out))))
+
 (module+ test
   ;; Any code in this `test` submodule runs when this file is run using DrRacket
   ;; or with `raco test`. The code here does not run when this file is
@@ -82,7 +98,7 @@
       (pretty-write code)
       (let ((temp (make-temporary-file)))
         (displayln "Compilation:")
-        (time (compile code temp #:script? script?))
+        (time (compile-to-file code temp #:script? script?))
         (displayln "Evaluation:")
         (check-equal?
          (let ((out (open-output-string)))
@@ -489,7 +505,7 @@
   ;; does not run when this file is required by another module. Documentation:
   ;; http://docs.racket-lang.org/guide/Module_Syntax.html#%28part._main-and-test%29
 
-  (require racket/cmdline racket/contract racket/match racket/list raco/command-name)
+  (require racket/cmdline racket/match racket/list raco/command-name)
   (define dest (box #f))
   (define raw? (box #f))
   (define script? (box #f))
@@ -497,8 +513,8 @@
     #:program (short-program+command-name)
     #:once-each
     [("-o" "--output") o "Where to write generated code" (set-box! dest o)]
-    [("-r" "--raw") "Enable the compiler to generate raw json syntax tree" (set-box! raw? #t)]
-    [("-c" "--core") "Display the core evaluator through standard output" (displayln py-lib-string)]
+    [("-r" "--raw") "Enable the compiler to generate raw json syntax tree(used only when -o/--output is supplied)" (set-box! raw? #t)]
+    [("-c" "--core") "Display the core evaluator through standard output and then exit" (displayln py-lib-string) (exit)]
     [("-s" "--script") "Use input files as scripts" (set-box! script? #t)]
     #:ps
     "If there is at least one source file provided, the path of the first source file will be used to automatically generate an output file path."
@@ -509,24 +525,25 @@
       ((list source0 sources ...)
        (define raw?-bool (unbox raw?))
        (define script?-bool (unbox script?))
-       (define/contract dest-path path-string?
-         (or (unbox dest) (path-replace-extension source0 (if raw?-bool ".json" ".py"))))
-       (compile
-        #:raw? raw?-bool
-        #:script? script?-bool
-        (cons (if script?-bool '#%script-begin 'begin)
-              (append*
-               (map
-                (lambda (source)
-                  (call-with-input-file
-                    source
-                    (lambda (in)
-                      (let loop ()
-                        (define v (read in))
-                        (if (eof-object? v)
-                            null
-                            (cons v (loop)))))))
-                (cons source0 sources))))
-        dest-path))
+       (define dest-path (unbox dest))
+
+       (define form
+          (cons (if script?-bool '#%script-begin 'begin)
+            (append*
+             (map
+              (lambda (source)
+                (call-with-input-file
+                  source
+                  (lambda (in)
+                    (let loop ()
+                      (define v (read in))
+                      (if (eof-object? v)
+                          null
+                          (cons v (loop)))))))
+              (cons source0 sources)))))
+
+       (if dest-path
+           (compile-to-file #:raw? raw?-bool #:script? script?-bool form dest-path)
+           (display (compile form #:script? script?))))
       (`()
        (void)))))

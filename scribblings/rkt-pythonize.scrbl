@@ -62,8 +62,9 @@ My Scheme2Python Compiler. The interpreter is tested against CPython(3.10-3.14),
 
 @defthing[#:kind "language" L any/c]
 @defthing[#:kind "language" LS any/c]
-@defproc[#:kind "compiler" (compile-scheme-code (code any/c) (dest path-string?) (#:raw? raw? boolean? #f) (#:script? script? boolean? #f)) any]
+@defproc[#:kind "compiler" (compile-scheme-code (code any/c) (#:script? script? boolean? #f)) string?]
 @defproc[#:kind "parser" (parse-L (code any/c)) any]
 @defproc[#:kind "unparser" (unparse-L (s-exp any/c)) any]
 @defproc[#:kind "parser" (parse-LS (code any/c)) any]
 @defproc[#:kind "unparser" (unparse-LS (s-exp any/c)) any]
+@defthing[#:kind "evaluator" py-lib-string string?]
