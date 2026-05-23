@@ -110,9 +110,8 @@ def make_python_procedure(cc: CC, proc, arity):
 def dynamic_require(cc: CC, name, pkg):
     return apply_cc(cc, importlib.import_module(name, pkg))
 #####################################
-class List(collections.abc.Sequence):
-    pass
-class Null(List):
+LinkedList = typing.Union['Null', 'Pair']
+class Null(Seq):
     def __len__(self):
         return 0
     def __getitem__(self, ind):
@@ -121,9 +120,9 @@ class Null(List):
         return Error(SchemeException(f"list-ref: index {ind} too large for list {self}"))
     def __str__(self) -> str:
         return "()"
-class Pair(List):
+class Pair(Seq):
     __slots__ = ("car", "cdr", "size")
-    def __init__(self, car, cdr: 'LinkedList') -> None:
+    def __init__(self, car, cdr: LinkedList) -> None:
         self.car = car
         self.cdr = cdr
         self.size = 1 + (cdr.size if isinstance(cdr, Pair) else 0) # type: int
@@ -138,7 +137,7 @@ class Pair(List):
         if ind < 0:
             return Error(SchemeException(f"list-ref: index {ind} less than 0"))
         offset = ind
-        list = self # type: typing.Union[Pair, Null]
+        list = self # type: LinkedList
         while offset>0:
             if isinstance(list, Null):
                 return Error(SchemeException(f"list-ref: index {ind} too large for list {self}"))
@@ -152,7 +151,6 @@ class Pair(List):
         for v in self.cdr:
             s = s + " " + f"{v}"
         return f"({s})"
-LinkedList = typing.Union[Pair, Null]
 null = Null()
 def cons(cc: CC, v1, v2: LinkedList):
     return apply_cc(cc, Pair(v1, v2))
@@ -173,8 +171,12 @@ def append(cc: CC, arr, obj):
     return apply_cc(cc, None)
 def length(cc: CC, arr):
     return apply_cc(cc, len(arr))
-def _not(cc: CC, b):
-    return apply_cc(cc, not b)
+def _not(cc: CC, v):
+    if v is False:
+        r = True
+    else:
+        r = False
+    return apply_cc(cc, r)
 def equal(cc: CC, o1, o2):
     return apply_cc(cc, o1 == o2)
 def eq(cc: CC, o1, o2):
@@ -254,7 +256,8 @@ prims: typing.Dict[str, typing.Union[typing.Callable, type, None, Null]] = {
     "is-a?": isinstanceof,
     "stream-type": Stream,
     "object-type": object_type,
-    "linked-list-type": List,
+    "null-type": Null,
+    "pair-type": Pair,
     "box-type": Value,
     "exn-type": SchemeException,
     "str-type": str,

@@ -53,7 +53,7 @@ My Scheme2Python Compiler. The interpreter is tested against CPython(3.10-3.14),
 @(define-syntax (helper _)
   (syntax-case #'() ()
     (()
-     #`(begin #,@(for/list (((code result) (in-hash example-table))) (render-example code result))))))
+     #`(begin #,@(for/list ((pair (in-list (reverse (unbox example-table))))) (render-example (car pair) (cdr pair)))))))
 @(helper)
 
 @section{Functions}
@@ -62,7 +62,7 @@ My Scheme2Python Compiler. The interpreter is tested against CPython(3.10-3.14),
 
 @defthing[#:kind "language" L any/c]
 @defthing[#:kind "language" LS any/c]
-@defproc[#:kind "compiler" (compile-scheme-code (code any/c) (#:script? script? boolean? #f)) string?]
+@defproc[#:kind "compiler" (compile-scheme-code (code any/c) (#:script? script? boolean? #f) (#:opt? opt? boolean? #t)) string?]
 @defproc[#:kind "parser" (parse-L (code any/c)) any]
 @defproc[#:kind "unparser" (unparse-L (s-exp any/c)) any]
 @defproc[#:kind "parser" (parse-LS (code any/c)) any]

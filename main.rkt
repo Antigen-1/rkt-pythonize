@@ -34,7 +34,7 @@
 (provide L parse-L unparse-L LS parse-LS unparse-LS current-primitives py-lib-string
          (contract-out (rename compile compile-scheme-code
                                (->* (any/c)
-                                    (#:script? boolean?)
+                                    (#:script? boolean? #:opt? boolean?)
                                     any))))
 
 (define py-lib-string (file->string core-py))
@@ -45,12 +45,15 @@
         e
         (loop (- n 1) (p e)))))
 
-(define (compile code #:script? (script? #f))
+(define (compile code #:script? (script? #f) #:opt? (opt? #t))
   ((compose1
     compile-L0
     L0-uniquify
     cps
-    (lambda (e) (repeat-pass 5 (compose1 partial-evaluate beta-reduce) e))
+    (lambda (e) 
+      (if opt?
+          (repeat-pass 5 (compose1 partial-evaluate beta-reduce) e)
+          e))
     uniquify
     make-explicit
     add-quote
@@ -77,12 +80,12 @@
 
   (define python-exe (or (cond ((getenv "TEST_PYTHON_EXE") => find-executable-path) (else #f))
                          (find-executable-path "python3") (find-executable-path "python")))
-  (define example-table (make-hash))
-  (define (test code output #:script? (script? #f) #:example? (example? #f))
+  (define example-table (box null))
+  (define (test code output #:script? (script? #f) #:example? (example? #f) #:opt? (opt? #t))
     (test-begin
       (pretty-write code)
       (displayln "Compilation:")
-      (define json (time (compile code #:script? script?)))
+      (define json (time (compile code #:script? script? #:opt? opt?)))
       (displayln "Evaluation:")
       (check-equal?
         (let ((out (open-output-string)))
@@ -92,7 +95,7 @@
              (system* python-exe core-py json))))
          (get-output-string out))
         output)
-      (if example? (hash-set! example-table code output) (void))))
+      (if example? (set-box! example-table (cons (cons code output) (unbox example-table))) (void))))
 
   ;; Uniquify
   (test '((lambda (mod)
@@ -366,40 +369,48 @@
                  (else none)))
         "1\n1\n2\n1\n2\n")
   ;; Partial evaluation
-  (test `(letrec ((print (#%vm-procedure (=> (dynamic-require "builtins" none) "print") 1)))
-           (print (+ 1 2))
-           (print (/ 1 2.0))
-           (print (/ 1 2))
-           (print (quotient 1 2.0))
-           (print (modulo 1 2.0))
-           (print (negate 1.0))
-           (print (eq? none 'none))
-           (print (eq? 'none 'none))
-           (print (eq? "a" ,(string #\a)))
-           (print (eq? 1 1.0))
-           (print (eq? '(1) '(1)))
-           (print (eq? '#hasheq{} '#hasheq{}))
-           (print (equal? 1 1.0))
-           (print (equal? '(1) '(1)))
-           (print (equal? '(1) '(1 2)))
-           (print (equal? '#hasheq{(x . 1)}
-                          '#hasheq{(x . 1)}))
-           (print (equal? '#hasheq{(x . 1)}
-                          '#hasheq{(x . 1)
-                                   (y . 2)}))
-           (print (equal? '(1) '#hasheq{(x . 1)}))
-           (print (if 1 1 2))
-           (print (if + 2 1))
-           (print (if #f 2 3))
-           (print (if (lambda (x) x) 4 5))
-           (apply print '("1"))
-           (print (is-a? 1 object-type))
-           (print (not dynamic-require))
-           (print (not #t))
-           )
-        "3\n0.5\n0.5\n0.0\n1.0\n-1.0\nTrue\nTrue\nTrue\nFalse\nFalse\nFalse\nTrue\nTrue\nFalse\nTrue\nFalse\nFalse\n1\n2\n3\n4\n1\nTrue\nFalse\nFalse\n"
-        #:example? #t)
+  (let ((form `(begin
+                (print (+ 1 2))
+                (print (/ 1 2.0))
+                (print (/ 1 2))
+                (print (quotient 1 2.0))
+                (print (modulo 1 2.0))
+                (print (negate 1.0))
+                (print (eq? none 'none))
+                (print (eq? 'none 'none))
+                (print (eq? "a" ,(string #\a)))
+                (print (eq? 1 1.0))
+                (print (eq? '(1) '(1)))
+                (print (eq? '#hasheq{} '#hasheq{}))
+                (print (equal? 1 1.0))
+                (print (equal? '(1) '(1)))
+                (print (equal? '(1) '(1 2)))
+                (print (equal? '#hasheq{(x . 1)}
+                               '#hasheq{(x . 1)}))
+                (print (equal? '#hasheq{(x . 1)}
+                               '#hasheq{(x . 1)
+                                        (y . 2)}))
+                (print (equal? '(1) '#hasheq{(x . 1)}))
+                (print (if 1 1 2))
+                (print (if + 2 1))
+                (print (if #f 2 3))
+                (print (if (lambda (x) x) 4 5))
+                (apply print '("1"))
+                (print (is-a? 1 object-type))
+                (print (not dynamic-require))
+                (print (not #t))
+                (print (not #f))
+                (print (not 'none))
+                (print (not 0))
+                (print (not (lambda (x) x)))))
+        (output "3\n0.5\n0.5\n0.0\n1.0\n-1.0\nTrue\nTrue\nTrue\nFalse\nFalse\nFalse\nTrue\nTrue\nFalse\nTrue\nFalse\nFalse\n1\n2\n3\n4\n1\nTrue\nFalse\nFalse\nTrue\nFalse\nFalse\nFalse\n"))
+  (test #:example? #t #:opt? #t form output)
+  (test #:opt? #f form output))
   ;; Linked lists
+  (test `(print (is-a? '() null-type)) "False\n" #:example? #t)
+  (test `(print (is-a? null null-type)) "True\n" #:example? #t)
+  (test `(print (is-a? '(1) pair-type)) "False\n" #:example? #t)
+  (test `(print (is-a? (cons 1 null) pair-type)) "True\n" #:example? #t)
   (let ((test-list (build-list 40 (lambda (n) (random 0 10000)))))
     (test `(letrec ((array-list->linked-list (lambda (al) (let ((len (length al))) (let loop ((i 0)) (if (equal? i len) null (cons (@ al i) (loop (+ i 1))))))))
                     (append (lambda (l1 l2)
