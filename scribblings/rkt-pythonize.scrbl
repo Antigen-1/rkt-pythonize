@@ -20,22 +20,21 @@ My Scheme2Python Compiler. The interpreter is tested against CPython(3.10-3.14),
 @itemlist[
 @item{Named let}
 @item{@racket[let/cc]}
-@item{TCO(Tail-Call Optimization)}
+@item{TCO (Tail-Call Optimization)}
 @item{Stream}
 @item{Inlining}
 @item{Partial evaluation}
-@item{Scripting}
+@item{Internal defines (@racket[define] inside @racket[lambda], @racket[let], @racket[letrec], @racket[named let], @racket[with-handler], @racket[begin], and @racket[cond] branch bodies)}
+@item{Top-level @racket[define] via @racket[begin]}
 ]
 
 @section{Syntax}
 
+The language @racket[L] supports @racket[define] in body positions (e.g., inside @racket[lambda], @racket[let], @racket[letrec], etc.).
+
 @codeblock[#:keep-lang-line? #f]{
 #:lang nanopass
 @(pretty-format #:mode 'write (language->s-expression L))
-}
-@codeblock[#:keep-lang-line? #f]{
-#:lang nanopass
-@(pretty-format #:mode 'write (language->s-expression LS))
 }
 
 @section{Default Primitives}
@@ -61,10 +60,17 @@ My Scheme2Python Compiler. The interpreter is tested against CPython(3.10-3.14),
 @defparam[current-primitives primitives (listof symbol?)]
 
 @defthing[#:kind "language" L any/c]
-@defthing[#:kind "language" LS any/c]
-@defproc[#:kind "compiler" (compile-scheme-code (code any/c) (#:script? script? boolean? #f) (#:opt? opt? boolean? #t)) string?]
+@defproc[#:kind "compiler" (compile-scheme-code (code any/c) (#:opt? opt? boolean? #t)) string?]
 @defproc[#:kind "parser" (parse-L (code any/c)) any]
 @defproc[#:kind "unparser" (unparse-L (s-exp any/c)) any]
-@defproc[#:kind "parser" (parse-LS (code any/c)) any]
-@defproc[#:kind "unparser" (unparse-LS (s-exp any/c)) any]
 @defthing[#:kind "evaluator" py-lib-string string?]
+
+@section{Changelog}
+
+@subsection{47.0}
+@itemlist[
+@item{Script mode merged with normal mode: @racket[define] now works in all body positions (@racket[lambda], @racket[let], @racket[letrec], @racket[named let], @racket[with-handler], @racket[begin], @racket[cond] branches)}
+@item{Removed separate @racket[LS] language and @racket[#%script-begin] form}
+@item{Removed @tt{-s}/@tt{--script} CLI flag (define support is always enabled)}
+@item{@racket[compile-scheme-code] no longer accepts @racket[#:script?] parameter}
+]

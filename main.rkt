@@ -29,12 +29,11 @@
          "passes/named-let.rkt" "passes/cond.rkt" "passes/chain.rkt" "passes/vm.rkt"
          "passes/stream.rkt" "passes/more-cond.rkt" "passes/cond-explicit.rkt" "passes/beta-reduce.rkt"
          "passes/partial-evaluate.rkt" "passes/L0-uniquify.rkt" "passes/handler.rkt" "passes/main.rkt"
-         "script/script.rkt"
          racket/contract racket/file)
-(provide L parse-L unparse-L LS parse-LS unparse-LS current-primitives py-lib-string
+(provide L parse-L unparse-L current-primitives py-lib-string
          (contract-out (rename compile compile-scheme-code
                                (->* (any/c)
-                                    (#:script? boolean? #:opt? boolean?)
+                                    (#:opt? boolean?)
                                     any))))
 
 (define py-lib-string (file->string core-py))
@@ -45,7 +44,7 @@
         e
         (loop (- n 1) (p e)))))
 
-(define (compile code #:script? (script? #f) #:opt? (opt? #t))
+(define (compile code #:opt? (opt? #t))
   ((compose1
     compile-L0
     L0-uniquify
@@ -66,9 +65,8 @@
     expand-more-cond
     make-cond-explicit
     expand-exn-handler
-    (if script? 
-      (compose1 LS->L parse-LS)
-      parse-L))
+    parse-L
+    expand-defines)
    code))
 
 (module+ test
@@ -81,11 +79,11 @@
   (define python-exe (or (cond ((getenv "TEST_PYTHON_EXE") => find-executable-path) (else #f))
                          (find-executable-path "python3") (find-executable-path "python")))
   (define example-table (box null))
-  (define (test code output #:script? (script? #f) #:example? (example? #f) #:opt? (opt? #t))
+  (define (test code output #:example? (example? #f) #:opt? (opt? #t))
     (test-begin
       (pretty-write code)
       (displayln "Compilation:")
-      (define json (time (compile code #:script? script? #:opt? opt?)))
+      (define json (time (compile code #:opt? opt?)))
       (displayln "Evaluation:")
       (check-equal?
         (let ((out (open-output-string)))
@@ -435,13 +433,60 @@
                 (print (sort (array-list->linked-list ',test-list))))
           (string-append (format "~a" (sort test-list <)) "\n")
           #:example? #t))
-  ;; Scripting
-  (test '(#%script-begin
+  ;; Define in bodies
+  (test '(begin
+           (define mod (dynamic-require "builtins" none))
+           (define print (get-attribute mod "print"))
+           (vm-apply print '("1")))
+        "1\n"
+        #:example? #t)
+  (test '(begin
           (define for-each (lambda (p l) (if (eq? l null) none (begin (p (car l)) (for-each p (cdr l))))))
           (for-each print (cons 1 (cons 2 (cons 3 null)))))
         "1\n2\n3\n"
-        #:script? #t
         #:example? #t)
+  (test '((lambda (mod)
+            (define print (get-attribute mod "print"))
+            (vm-apply print '(1)))
+          (dynamic-require "builtins" none))
+        "1\n")
+  (test '((lambda (mod)
+            (define print (get-attribute mod "print"))
+            (define x 42)
+            (define y (+ x 1))
+            (vm-apply print (cons x (cons y null))))
+          (dynamic-require "builtins" none))
+        "42 43\n")
+  (test '((lambda ()
+           (define (fact n)
+             (if (equal? n 0)
+                 1
+                 (* n (fact (- n 1)))))
+           (fact 5)))
+        ""
+        #:example? #t)
+  (test '(let ((mod (dynamic-require "builtins" none)))
+           (define print (get-attribute mod "print"))
+           (define x 10)
+           (vm-apply print (cons x null)))
+        "10\n")
+  (test '(letrec ((mod (dynamic-require "builtins" none)))
+           (define print (get-attribute mod "print"))
+           (define square (lambda (n) (* n n)))
+           (vm-apply print (cons (square 5) null)))
+        "25\n")
+  (test '(let ((mod (dynamic-require "builtins" none)))
+           (let loop ((i 3))
+             (if (equal? i 0)
+                 (begin
+                   (define print (get-attribute mod "print"))
+                   (vm-apply print '("done")))
+                 (loop (- i 1)))))
+        "done\n")
+  (test `(with-handler (lambda (v) none)
+           (define p print)
+           (p "hello"))
+        "hello\n")
   ;; Benchmark
   (let ((test-list (build-list 5000 (lambda (n) (random 0 10000)))))
     (test `(letrec ((array-list->linked-list (lambda (al) (let ((len (length al))) (let loop ((i 0)) (if (equal? i len) null (cons (@ al i) (loop (+ i 1))))))))
@@ -501,7 +546,6 @@
 
   (require racket/cmdline racket/match racket/list racket/system racket/pretty raco/command-name)
   (define dest (box #f))
-  (define script? (box #f))
   (define json? (box #f))
   (define python (box (or (cond ((getenv "PYTHON_EXE") => find-executable-path) (else #f))
                           (find-executable-path "python3") 
@@ -515,7 +559,6 @@
     #:program (short-program+command-name)
     #:once-each
     [("-o" "--output") o "Where to write generated code" (set-box! dest o)]
-    [("-s" "--script") "Use input files as scripts" (set-box! script? #t)]
     [("-p" "--python") py "Set the python executable" (set-box! python (find-executable-path py))]
     [("-j" "--json") "Recognize supplied files as json codes" (set-box! json? #t)]
     #:ps
@@ -531,23 +574,22 @@
     (match* (files json?)
       (((list source0 sources ...) (box #f))
        (define dest-path (unbox dest))
-       (define script?-bool (unbox script?))
 
        (define form
-          (cons (if script?-bool '#%script-begin 'begin)
+          (cons 'begin
             (append*
              (map
-              (lambda (source)
-                (call-with-input-file
-                  source
-                  (lambda (in)
-                    (let loop ()
-                      (define v (read in))
-                      (if (eof-object? v)
-                          null
-                          (cons v (loop)))))))
-              (cons source0 sources)))))
-       (define compiled (compile #:script? script?-bool form))
+               (lambda (source)
+                 (call-with-input-file
+                   source
+                   (lambda (in)
+                     (let loop ()
+                       (define v (read in))
+                       (if (eof-object? v)
+                           null
+                           (cons v (loop)))))))
+               (cons source0 sources)))))
+       (define compiled (compile form))
 
        (if dest-path
            (call-with-output-file dest-path #:exists 'truncate/replace (lambda (out) (write-string compiled out)))
