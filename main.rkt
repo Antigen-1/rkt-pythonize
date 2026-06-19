@@ -29,7 +29,6 @@
          "passes/named-let.rkt" "passes/cond.rkt" "passes/chain.rkt" "passes/vm.rkt"
          "passes/stream.rkt" "passes/more-cond.rkt" "passes/cond-explicit.rkt" "passes/beta-reduce.rkt"
          "passes/partial-evaluate.rkt" "passes/L0-uniquify.rkt" "passes/handler.rkt" "passes/main.rkt"
-         "passes/let-star.rkt"
          racket/contract racket/file)
 (provide L parse-L unparse-L current-primitives py-lib-string
          (contract-out (rename compile compile-scheme-code
