@@ -20,14 +20,14 @@
     L8 (ir) -> L7 ()
     (Expr : Expr (ir) -> Expr ()
           ((=> ,[e0] ,nm* ...)
-           (foldr
-            (lambda (name expr)
+           (foldl
+            (lambda (expr name)
               `(,get-attribute-sym ,expr ,name))
             e0 nm*))
           ((=>! ,[e0] ,nm* ... ,nm0 ,[e1])
            `(,set-attribute-sym
-             ,(foldr
-               (lambda (name expr)
+             ,(foldl
+               (lambda (expr name)
                  `(,get-attribute-sym ,expr ,name))
                e0 nm*)
              ,nm0

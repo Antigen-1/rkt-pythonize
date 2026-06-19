@@ -199,6 +199,10 @@ def more(cc: CC, v1, v2):
     return apply_cc(cc, v1 > v2)
 def less(cc: CC, v1, v2):
     return apply_cc(cc, v1 < v2)
+def more_equal(cc: CC, v1, v2):
+    return apply_cc(cc, v1 >= v2)
+def less_equal(cc: CC, v1, v2):
+    return apply_cc(cc, v1 <= v2)
 def isinstanceof(cc: CC, obj, type):
     return apply_cc(cc, isinstance(obj, type))
 class Stream(object):
@@ -243,6 +247,8 @@ prims: typing.Dict[str, typing.Union[typing.Callable, type, None, Null]] = {
     "negate": neg,
     ">": more,
     "<": less,
+    ">=": more_equal,
+    "<=": less_equal,
     "get-attribute": get_attribute,
     "set-attribute!": set_attribute,
     "raise": _raise,

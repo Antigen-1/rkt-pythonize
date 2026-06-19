@@ -9,9 +9,17 @@
          (let ((x e) ...)
            body ...)
          (letrec ((x e) ...)
+           body ...)
+         (let* ((x e) ...)
            body ...))))
 
 (define-parser parse-L5 L5)
+
+(define (expand-let* bindings body)
+  (match bindings
+    ['() `(begin ,@body)]
+    [`((,x ,e) ,rest ...)
+     `(let ((,x ,e)) ,(expand-let* rest body))]))
 
 (define-pass expand-let :
   L5 (ir) -> L4 ()
@@ -29,4 +37,7 @@
                 (set! ,x ,e)
                 ...))
              ,body ...)
-           ,nones ...))))
+           ,nones ...))
+        ((let* ((,x ,[e]) ...)
+           ,[body] ...)
+         (expand-let* (map list x e) body))))

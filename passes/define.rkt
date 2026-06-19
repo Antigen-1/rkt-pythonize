@@ -4,9 +4,10 @@
 
 (define (expand-body-defines body)
   (define-values (defs rest)
-    (splitf-at body
-               (lambda (e)
-                 (and (pair? e) (eq? (car e) 'define)))))
+    (partition
+     (lambda (e)
+       (and (pair? e) (eq? (car e) 'define)))
+     body))
   (if (null? defs)
       (map expand-defines body)
       (let* ((id+vals
@@ -46,6 +47,9 @@
     [`(letrec ((,x* ,e*) ...) ,body* ...)
      (define bindings (map list x* (map expand-defines e*)))
      `(letrec ,bindings ,@(expand-body-defines body*))]
+    [`(let* ((,x* ,e*) ...) ,body* ...)
+     (define bindings (map list x* (map expand-defines e*)))
+     `(let* ,bindings ,@(expand-body-defines body*))]
     [`(let ,loop ((,x* ,e*) ...) ,body* ...)
      (define bindings (map list x* (map expand-defines e*)))
      `(let ,loop ,bindings ,@(expand-body-defines body*))]

@@ -19,12 +19,14 @@ My Scheme2Python Compiler. The interpreter is tested against CPython(3.10-3.14),
 
 @itemlist[
 @item{Named let}
+@item{@racket[let*]}
 @item{@racket[let/cc]}
 @item{TCO (Tail-Call Optimization)}
 @item{Stream}
 @item{Inlining}
 @item{Partial evaluation}
-@item{Internal defines (@racket[define] inside @racket[lambda], @racket[let], @racket[letrec], @racket[named let], @racket[with-handler], @racket[begin], and @racket[cond] branch bodies)}
+@item{Internal defines (@racket[define] inside @racket[lambda], @racket[let], @racket[letrec], @racket[let*], @racket[named let], @racket[with-handler], @racket[begin], and @racket[cond] branch bodies)}
+@item{Defines may appear after expressions in any body context}
 @item{Top-level @racket[define] via @racket[begin]}
 ]
 
@@ -66,6 +68,14 @@ The language @racket[L] supports @racket[define] in body positions (e.g., inside
 @defthing[#:kind "evaluator" py-lib-string string?]
 
 @section{Changelog}
+
+@subsection{48.0}
+@itemlist[
+@item{@racket[define] now supports appearing after expressions in all body contexts}
+@item{Added @racket[>=] and @racket[<=] primitives}
+@item{Added @racket[let*] with internal @racket[define] support}
+@item{Fixed @racket[=>] and @racket[=>!] parameter ordering (now uses left-to-right evaluation)}
+]
 
 @subsection{47.0}
 @itemlist[

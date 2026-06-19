@@ -24,7 +24,7 @@
                      ! @ ? <! length set-box! unbox box cons car cdr null
                      not
                      equal? eq?
-                     + - * / quotient modulo negate > <
+                     + - * / quotient modulo negate > < >= <=
                      is-a? object-type stream-type box-type closure-type exn-type str-type int-type null-type pair-type
                      ))
 
