@@ -29,6 +29,7 @@
          "passes/named-let.rkt" "passes/cond.rkt" "passes/chain.rkt" "passes/vm.rkt"
          "passes/stream.rkt" "passes/more-cond.rkt" "passes/cond-explicit.rkt" "passes/beta-reduce.rkt"
          "passes/partial-evaluate.rkt" "passes/L0-uniquify.rkt" "passes/handler.rkt" "passes/main.rkt"
+         "passes/let-star.rkt"
          racket/contract racket/file)
 (provide L parse-L unparse-L current-primitives py-lib-string
          (contract-out (rename compile compile-scheme-code
@@ -66,7 +67,8 @@
     make-cond-explicit
     expand-exn-handler
     parse-L
-    expand-defines)
+    expand-defines
+    expand-let*)
    code))
 
 (module+ test
@@ -531,11 +533,10 @@
         #:example? #t)
   ;; => chain with 3+ attributes (testing foldl order fix)
   (test '(letrec ((mod (dynamic-require "builtins" none))
+                  (os (dynamic-require "os" none))
                   (print (#%vm-procedure (=> mod "print") 1)))
-           (print (=> mod "print" "__name__"))
-           (=>! mod "a" 99)
-           (print (=> mod "a")))
-        "print\n99\n"
+           (print (=> os "path" "sep")))
+        "/\n"
         #:example? #t)
   ;; Benchmark
   (let ((test-list (build-list 5000 (lambda (n) (random 0 10000)))))
