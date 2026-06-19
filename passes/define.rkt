@@ -47,6 +47,9 @@
     [`(letrec ((,x* ,e*) ...) ,body* ...)
      (define bindings (map list x* (map expand-defines e*)))
      `(letrec ,bindings ,@(expand-body-defines body*))]
+    [`(let* ((,x* ,e*) ...) ,body* ...)
+     (define bindings (map list x* (map expand-defines e*)))
+     `(let* ,bindings ,@(expand-body-defines body*))]
     [`(let ,loop ((,x* ,e*) ...) ,body* ...)
      (define bindings (map list x* (map expand-defines e*)))
      `(let ,loop ,bindings ,@(expand-body-defines body*))]

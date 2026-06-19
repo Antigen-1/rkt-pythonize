@@ -66,8 +66,7 @@
     make-cond-explicit
     expand-exn-handler
     parse-L
-    expand-defines
-    expand-let*)
+    expand-defines)
    code))
 
 (module+ test

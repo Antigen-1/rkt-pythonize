@@ -1,6 +1,6 @@
 #lang racket/base
-(require nanopass/base racket/list racket/match "quote.rkt")
-(provide parse-L5 unparse-L5 L5 expand-let expand-let*)
+(require nanopass/base racket/list "quote.rkt")
+(provide parse-L5 unparse-L5 L5 expand-let)
 
 (define-language L5
   (extends L4)
@@ -9,20 +9,11 @@
          (let ((x e) ...)
            body ...)
          (letrec ((x e) ...)
+           body ...)
+         (let* ((x e) ...)
            body ...))))
 
 (define-parser parse-L5 L5)
-
-(define (expand-let* expr)
-  (match expr
-    [`(let* () ,body* ...)
-     `(begin ,@(map expand-let* body*))]
-    [`(let* ((,x ,e) ,rest ...) ,body* ...)
-     `(let ((,x ,(expand-let* e)))
-        ,(expand-let* `(let* ,rest ,@body*)))]
-    [(? pair? p)
-     (map expand-let* p)]
-    [_ expr]))
 
 (define-pass expand-let :
   L5 (ir) -> L4 ()
@@ -40,4 +31,15 @@
                 (set! ,x ,e)
                 ...))
              ,body ...)
-           ,nones ...))))
+           ,nones ...))
+        ((let* ((,x ,[e]) ...)
+           ,[body] ...)
+         (if (null? x)
+             `(begin ,body ...)
+             (let loop ((xs (reverse x))
+                        (es (reverse e))
+                        (acc `(begin ,body ...)))
+               (if (null? xs)
+                   acc
+                   (loop (cdr xs) (cdr es)
+                          `((lambda (,(car xs)) ,acc) ,(car es)))))))))
