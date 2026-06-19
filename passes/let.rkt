@@ -15,12 +15,6 @@
 
 (define-parser parse-L5 L5)
 
-(define (expand-let* bindings body)
-  (match bindings
-    ['() `(begin ,@body)]
-    [`((,x ,e) ,rest ...)
-     `(let ((,x ,e)) ,(expand-let* rest body))]))
-
 (define-pass expand-let :
   L5 (ir) -> L4 ()
   (Expr : Expr (ir) -> Expr ()
@@ -40,4 +34,10 @@
            ,nones ...))
         ((let* ((,x ,[e]) ...)
            ,[body] ...)
-         (expand-let* (map list x e) body))))
+         (define nones (make-list (length x) `','none))
+         `((lambda (,x ...)
+             ((lambda ()
+                (set! ,x ,e)
+                ...))
+             ,body ...)
+           ,nones ...))))

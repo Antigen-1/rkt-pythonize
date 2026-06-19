@@ -21,13 +21,13 @@
     (Expr : Expr (ir) -> Expr ()
           ((=> ,[e0] ,nm* ...)
            (foldl
-            (lambda (expr name)
+            (lambda (name expr)
               `(,get-attribute-sym ,expr ,name))
             e0 nm*))
           ((=>! ,[e0] ,nm* ... ,nm0 ,[e1])
            `(,set-attribute-sym
              ,(foldl
-               (lambda (expr name)
+               (lambda (name expr)
                  `(,get-attribute-sym ,expr ,name))
                e0 nm*)
              ,nm0

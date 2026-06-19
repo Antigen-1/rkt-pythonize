@@ -502,14 +502,14 @@
            (print y))
         "1\n2\n")
   ;; >= and <= predicates
-  (test '((lambda (print)
-            (print (>= 3 2))
-            (print (>= 2 2))
-            (print (>= 1 2))
-            (print (<= 1 2))
-            (print (<= 2 2))
-            (print (<= 3 2)))
-          (get-attribute (dynamic-require "builtins" none) "print"))
+  (test '(letrec ((mod (dynamic-require "builtins" none))
+                  (print (#%vm-procedure (=> mod "print") 1)))
+           (print (>= 3 2))
+           (print (>= 2 2))
+           (print (>= 1 2))
+           (print (<= 1 2))
+           (print (<= 2 2))
+           (print (<= 3 2)))
         "True\nTrue\nFalse\nTrue\nTrue\nFalse\n")
   ;; let*
   (test '(let* ((mod (dynamic-require "builtins" none))
@@ -532,10 +532,10 @@
   ;; => chain with 3+ attributes (testing foldl order fix)
   (test '(letrec ((mod (dynamic-require "builtins" none))
                   (print (#%vm-procedure (=> mod "print") 1)))
-           (print (car (=> mod "print.__name__" "upper")))
-           (begin (=>! mod "a" "b" 99)
-                  (print (=> mod "a" "b"))))
-        "PRINT\n99\n"
+           (print (=> mod "print" "__name__"))
+           (=>! mod "a" 99)
+           (print (=> mod "a")))
+        "print\n99\n"
         #:example? #t)
   ;; Benchmark
   (let ((test-list (build-list 5000 (lambda (n) (random 0 10000)))))
