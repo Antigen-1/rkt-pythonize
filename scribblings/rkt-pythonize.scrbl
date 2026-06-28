@@ -69,6 +69,12 @@ The language @racket[L] supports @racket[define] in body positions (e.g., inside
 
 @section{Changelog}
 
+@subsection{49.0}
+@itemlist[
+@item{Merged @racket[beta-reduce] and @racket[partial-evaluate] into a single partial evaluator with standard evaluator architecture}
+@item{@racket[define] forms inside nested @racket[begin] bodies are now fully flattened to the same scope level}
+]
+
 @subsection{48.0}
 @itemlist[
 @item{@racket[define] now supports appearing after expressions in all body contexts}

@@ -27,7 +27,7 @@
 
 (require "core/main.rkt" "passes/uniquify.rkt" "passes/explicit.rkt" "passes/cps.rkt" "passes/quote.rkt" "passes/let.rkt"
          "passes/named-let.rkt" "passes/cond.rkt" "passes/chain.rkt" "passes/vm.rkt"
-         "passes/stream.rkt" "passes/more-cond.rkt" "passes/cond-explicit.rkt" "passes/beta-reduce.rkt"
+         "passes/stream.rkt" "passes/more-cond.rkt" "passes/cond-explicit.rkt"
          "passes/partial-evaluate.rkt" "passes/L0-uniquify.rkt" "passes/handler.rkt" "passes/main.rkt"
          racket/contract racket/file)
 (provide L parse-L unparse-L current-primitives py-lib-string
@@ -51,7 +51,7 @@
     cps
     (lambda (e) 
       (if opt?
-          (repeat-pass 5 (compose1 partial-evaluate beta-reduce) e)
+          (repeat-pass 5 partial-evaluate e)
           e))
     uniquify
     make-explicit
@@ -292,13 +292,27 @@
             (vm-apply print (cons x null)))
           (dynamic-require "builtins" none))
         "first\n42\n")
-  (test '(begin
-           (define x 1)
-           (print x)
-           (define y 2)
-           (print y))
-        "1\n2\n")
-  ;; Cond
+   (test '(begin
+            (define x 1)
+            (print x)
+            (define y 2)
+            (print y))
+         "1\n2\n")
+   ;; Define inside nested begin — hoisted to same level
+   (test '(begin
+            (define x 10)
+            (begin
+              (define y 20)
+              (print x)
+              (print y)))
+         "10\n20\n")
+   ;; Expression outside begin can access define inside begin
+   (test '(begin
+            (begin
+              (define y 30))
+            (print y))
+         "30\n")
+   ;; Cond
   (test '(let ((mod (dynamic-require "builtins" none)))
            (let ((print (lambda (v)
                           (let ((l '()))
@@ -482,7 +496,14 @@
                                '#hasheq{(x . 1)
                                         (y . 2)}))
                 (print (equal? '(1) '#hasheq{(x . 1)}))
-                (print (if 1 1 2))
+                 (print (> 3 2))
+                 (print (> 2 2))
+                 (print (< 1 2))
+                 (print (>= 3 3))
+                 (print (>= 2 3))
+                 (print (<= 1 1))
+                 (print (<= 3 2))
+                 (print (if 1 1 2))
                 (print (if + 2 1))
                 (print (if #f 2 3))
                 (print (if (lambda (x) x) 4 5))
@@ -494,7 +515,7 @@
                 (print (not 'none))
                 (print (not 0))
                 (print (not (lambda (x) x)))))
-        (output "3\n0.5\n0.5\n0.0\n1.0\n-1.0\nTrue\nTrue\nTrue\nFalse\nFalse\nFalse\nTrue\nTrue\nFalse\nTrue\nFalse\nFalse\n1\n2\n3\n4\n1\nTrue\nFalse\nFalse\nTrue\nFalse\nFalse\nFalse\n"))
+         (output "3\n0.5\n0.5\n0.0\n1.0\n-1.0\nTrue\nTrue\nTrue\nFalse\nFalse\nFalse\nTrue\nTrue\nFalse\nTrue\nFalse\nFalse\nTrue\nFalse\nTrue\nTrue\nFalse\nTrue\nFalse\n1\n2\n3\n4\n1\nTrue\nFalse\nFalse\nTrue\nFalse\nFalse\nFalse\n"))
   (test #:example? #t #:opt? #t form output)
   (test #:opt? #f form output))
   ;; Linked lists

@@ -2,14 +2,23 @@
 (require racket/list racket/match)
 (provide expand-defines)
 
+(define (flatten-begins body)
+  (foldr (lambda (e acc)
+           (if (and (pair? e) (eq? (car e) 'begin))
+               (append (flatten-begins (cdr e)) acc)
+               (cons e acc)))
+         null
+         body))
+
 (define (expand-body-defines body)
+  (define flattened (flatten-begins body))
   (define-values (defs rest)
     (partition
      (lambda (e)
        (and (pair? e) (eq? (car e) 'define)))
-     body))
+     flattened))
   (if (null? defs)
-      (map expand-defines body)
+      (map expand-defines flattened)
       (let* ((id+vals
               (map normalize-define defs))
              (rest-processed (expand-body-defines rest))

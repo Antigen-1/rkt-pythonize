@@ -1,7 +1,7 @@
 #lang racket/base
-(require nanopass/base racket/match racket/case "cps.rkt" "beta-reduce.rkt")
+(require nanopass/base racket/match racket/case racket/list "cps.rkt")
 (provide partial-evaluate L1 parse-L1 unparse-L1
-         json-number? json-equal? json-eq?)
+         json-number? json-equal? json-eq? datum? primitive? variable? lambda? immediate?)
 
 (define (json-number? v)
   (or (exact-integer? v)
@@ -38,6 +38,63 @@
          (string=? v1 v2))
         (else #f)))
 
+(define (datum? expr)
+  (nanopass-case (L1 Expr) expr
+    (',d #t)
+    (else #f)))
+(define (primitive? expr)
+  (nanopass-case (L1 Expr) expr
+    (,pr #t)
+    (else #f)))
+(define (variable? expr)
+  (nanopass-case (L1 Expr) expr
+    (,x #t)
+    (else #f)))
+(define (lambda? expr)
+  (nanopass-case (L1 Expr) expr
+    ((lambda (,x* ...) ,e)
+     #t)
+    (else #f)))
+(define (immediate? expr)
+  (or (primitive? expr)
+      (variable? expr)
+      (datum? expr)
+      (lambda? expr)))
+
+(define (get-references expr id)
+  (define cnt (box null))
+  (define-pass helper :
+    L1 (ir) -> L1 ()
+    (Expr : Expr (ir) -> Expr ()
+          (,x (if (eq? x id)
+                  (set-box! cnt (cons 'ref (unbox cnt)))
+                  (void))
+              `,x)
+          ((set! ,x ,[e])
+           (if (eq? x id)
+               (set-box! cnt (cons 'set (unbox cnt)))
+               (void))
+           `(set! ,x ,e))))
+  (helper expr)
+  (unbox cnt))
+(define (replace-id-with expr id val)
+  (define-pass helper :
+    L1 (ir) -> L1 ()
+    (Expr : Expr (ir) -> Expr ()
+          (,x (if (eq? x id)
+                  `,val
+                  `,x))))
+  (helper expr))
+(define (replace-set!-with-expr f id)
+  (define-pass helper :
+    L1 (ir) -> L1 ()
+    (Expr : Expr (ir) -> Expr ()
+      ((set! ,x ,[e])
+       (if (eq? x id)
+           `(begin ,e none)
+           `(set! ,x ,e)))))
+  (helper f))
+
 (define (begin? e)
   (nanopass-case (L1 Expr) e
     ((begin ,e ...)
@@ -51,35 +108,82 @@
 (define-pass partial-evaluate :
   L1 (ir) -> L1 ()
   (Expr : Expr (ir) -> Expr ()
+        ;; Begin: flatten and simplify
         ((begin ,[e*] ...)
          ;; Expand internal begin forms
          (define bodies1 (foldr (lambda (e bs) (if (begin? e) (append (begin-body e) bs) (cons e bs))) null e*))
          ;; Remove immediate values (except the returned value)
-         (define bodies2 
-          (if (null? bodies1)
-              null
-              (let ((reversed (reverse bodies1)))
-                (reverse (cons (car reversed) (filter (lambda (b) (not (immediate? b))) (cdr reversed)))))))
+         (define bodies2
+           (if (null? bodies1)
+               null
+               (let ((reversed (reverse bodies1)))
+                 (reverse (cons (car reversed) (filter (lambda (b) (not (immediate? b))) (cdr reversed)))))))
          (cond ((null? bodies2) `','none)
                ((= (length bodies2) 1) (car bodies2))
                (else `(begin ,bodies2 ...))))
+        ;; Set! self-assignment elimination
         ((set! ,x0 ,x1)
          (if (eq? x0 x1)
              `','none
              `(set! ,x0 ,x1)))
+        ;; If folding
         ((if ,[e0] ,[e1] ,[e2])
          (if (or (datum? e0) (primitive? e0) (lambda? e0))
              (if (nanopass-case (L1 Expr) e0
-                                (',d d)
-                                (else #t))
-                 `,e1
-                 `,e2)
+                   (',d d)
+                   (else #t))
+                 e1
+                 e2)
              `(if ,e0 ,e1 ,e2)))
+        ;; let/cc elimination (from beta-reduce)
+        ((let/cc ,x ,[body])
+         (if (= 0 (length (get-references body x)))
+             body
+             `(let/cc ,x ,body)))
+        ;; Lambda application — beta reduction (from beta-reduce)
+        (((lambda (,x* ...) ,[body]) ,[e*] ...)
+         (if (= (length x*) (length e*))
+             (let* ((us (map (lambda (x) (get-references body x)) x*))
+                    (table (foldr
+                            (lambda (x u e t)
+                              (if (and (= 0 (length u)) (immediate? e))
+                                  t
+                                  (cons (list x u e) t)))
+                            null
+                            x* us e*))
+                    (nx* (map car table))
+                    (nu* (map cadr table))
+                    (ne* (map caddr table))
+                    (ntable (foldr
+                             (lambda (x u e t)
+                               (if (and (not (memq 'set u))
+                                        (= (length u) 1)
+                                        (immediate? e))
+                                   (cons (replace-id-with (car t) x e)
+                                         (cdr t))
+                                   (if (and (immediate? e)
+                                            (not (memq 'ref u)))
+                                       (cons (replace-set!-with-expr (car t) x)
+                                             (cdr t))
+                                       (cons (car t)
+                                             (cons (list x u e) (cdr t))))))
+                             (cons body null)
+                             nx* nu* ne*))
+                    (ne (car ntable))
+                    (nnx* (map car (cdr ntable)))
+                    (nnu* (map cadr (cdr ntable)))
+                    (nne* (map caddr (cdr ntable))))
+               (if (= (length nnx*) 0)
+                   ne
+                   `((lambda (,nnx* ...) ,ne)
+                     ,nne* ...)))
+             `((lambda (,x* ...) ,body) ,@e*)))
+        ;; 3-arg application — primitive folding
         ((,[e0] ,[e1] ,[e2])
          (nanopass-case (L1 Expr) `(,e0 ,e1 ,e2)
                         ((,pr ',d0 ',d1)
                          (match* (pr d0 d1)
-                           (((and (or '+ '- '* '/ 'quotient 'modulo) op)
+                           (((and (or '+ '- '* '/ 'quotient 'modulo '> '< '>= '<=) op)
                              (? json-number? num1)
                              (? json-number? num2))
                             `',((case/eq op
@@ -91,14 +195,14 @@
                                                          (exact-integer? v2)
                                                          (= (modulo v1 v2) 0))
                                                     (/ v1 v2)
-                                                    ; JSON does not support exact rationals
-                                                    (exact->inexact (/ v1 v2)))
-                                                ))
+                                                    (exact->inexact (/ v1 v2)))))
                                          ((quotient) quotient)
                                          ((modulo) modulo)
-                                         )
-                                num1
-                                num2))
+                                         ((>) >)
+                                         ((<) <)
+                                         ((>=) >=)
+                                         ((<=) <=))
+                                num1 num2))
                            (((and (or 'equal? 'eq?) op)
                              d0
                              d1)
@@ -122,6 +226,7 @@
                             `(begin ,e '#t))
                            (else `(,pr1 ,e ,pr2))))
                         (else `(,e0 ,e1 ,e2))))
+        ;; 2-arg application — primitive folding
         ((,[e0] ,[e1])
          (nanopass-case (L1 Expr) `(,e0 ,e1)
                         ((,pr ',d)
@@ -143,3 +248,5 @@
                                           (else `(,pr ,e))))
                           (else `(,pr ,e))))
                         (else `(,e0 ,e1))))))
+
+
