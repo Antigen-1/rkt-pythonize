@@ -69,6 +69,14 @@ The language @racket[L] supports @racket[define] in body positions (e.g., inside
 
 @section{Changelog}
 
+@subsection{50.0}
+@itemlist[
+@item{Ported @racket[define] pass to use nanopass framework with new @racket[L14] intermediate language (extends @racket[L13])}
+@item{Removed orphaned @racket[beta-reduce.rkt] (logic is in @racket[partial-evaluate.rkt])}
+@item{Removed @racket[racket/match] dependency from define pass}
+@item{Added @racket[(define (x x* ...) body)] function-syntax define form}
+]
+
 @subsection{49.0}
 @itemlist[
 @item{Merged @racket[beta-reduce] and @racket[partial-evaluate] into a single partial evaluator with standard evaluator architecture}

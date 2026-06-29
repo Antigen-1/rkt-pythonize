@@ -1,75 +1,86 @@
 #lang racket/base
-(require racket/list racket/match)
-(provide expand-defines)
+(require nanopass/base racket/list "handler.rkt")
+(provide L14 parse-L14 unparse-L14 expand-defines)
+
+(define-language L14
+  (extends L13)
+  (Expr (e body)
+    (+ (define x e)
+       (define (x x* ...) body ...))))
+
+(define-parser parse-L14 L14)
+
+(define (define-form? expr)
+  (nanopass-case (L14 Expr) expr
+    ((define ,x ,e) #t)
+    ((define (,x ,x* ...) ,body ...) #t)
+    (else #f)))
 
 (define (flatten-begins body)
   (foldr (lambda (e acc)
-           (if (and (pair? e) (eq? (car e) 'begin))
-               (append (flatten-begins (cdr e)) acc)
-               (cons e acc)))
-         null
+           (nanopass-case (L14 Expr) e
+             ((begin ,e* ...) (append (flatten-begins e*) acc))
+             (else (cons e acc))))
+         '()
          body))
 
-(define (expand-body-defines body)
-  (define flattened (flatten-begins body))
-  (define-values (defs rest)
-    (partition
-     (lambda (e)
-       (and (pair? e) (eq? (car e) 'define)))
-     flattened))
-  (if (null? defs)
-      (map expand-defines flattened)
-      (let* ((id+vals
-              (map normalize-define defs))
-             (rest-processed (expand-body-defines rest))
-             (bindings (map (lambda (p) (list (car p) (cadr p))) id+vals)))
-        (list `(letrec ,bindings ,(cons 'begin rest-processed))))))
+(define none-expr (parse-L14 'none))
 
-(define (normalize-define d)
-  (match d
-    [`(define (,name ,params* ...) ,body* ...)
-     (list name `(lambda (,@params*) ,@(expand-body-defines body*)))]
-    [`(define ,name ,val)
-     (list name (expand-defines val))]
-    [_ (error 'expand-defines "invalid define: ~a" d)]))
+(with-output-language (L13 Expr)
+  (define (process-body body expand)
+    (define flattened (flatten-begins body))
+    (define-values (defs rest) (partition define-form? flattened))
+    (if (null? defs)
+        (let ((rest* (map expand rest)))
+          (cond ((null? rest*) (expand none-expr))
+                ((null? (cdr rest*)) (car rest*))
+                (else `(begin ,rest* ...))))
+        (let* ((norms (map (lambda (d)
+                             (nanopass-case (L14 Expr) d
+                               ((define (,x ,x* ...) ,body ...)
+                                (list x `(lambda (,x* ...) ,(process-body body expand))))
+                               ((define ,x ,e)
+                                (list x (expand e)))))
+                           defs))
+               (binds-x* (map car norms))
+               (binds-e* (map cadr norms))
+               (rest* (map expand rest))
+               (rest-body (cond ((null? rest*) (expand none-expr))
+                                ((null? (cdr rest*)) (car rest*))
+                                (else `(begin ,rest* ...)))))
+          `(letrec ([,binds-x* ,binds-e*] ...) ,rest-body)))))
 
-(define (expand-cond-clause clause)
-  (match clause
-    [`(else ,body* ...)
-     `(else ,@(expand-body-defines body*))]
-    [`(,test ,body* ...)
-     `(,(expand-defines test) ,@(expand-body-defines body*))]
-    [else (error 'expand-defines "invalid cond clause: ~a" clause)]))
-
-(define (expand-defines sexp)
-  (match sexp
-    [(or `(lambda ,params ,body* ...)
-         `(λ ,params ,body* ...))
-     `(lambda ,params ,@(expand-body-defines body*))]
-    [`(let/cc ,x ,body* ...)
-     `(let/cc ,x ,@(expand-body-defines body*))]
-    [`(with-handler ,handler ,body* ...)
-     `(with-handler ,(expand-defines handler) ,@(expand-body-defines body*))]
-    [`(let ((,x* ,e*) ...) ,body* ...)
-     (define bindings (map list x* (map expand-defines e*)))
-     `(let ,bindings ,@(expand-body-defines body*))]
-    [`(letrec ((,x* ,e*) ...) ,body* ...)
-     (define bindings (map list x* (map expand-defines e*)))
-     `(letrec ,bindings ,@(expand-body-defines body*))]
-    [`(let* ((,x* ,e*) ...) ,body* ...)
-     (define bindings (map list x* (map expand-defines e*)))
-     `(let* ,bindings ,@(expand-body-defines body*))]
-    [`(let ,loop ((,x* ,e*) ...) ,body* ...)
-     (define bindings (map list x* (map expand-defines e*)))
-     `(let ,loop ,bindings ,@(expand-body-defines body*))]
-    [`(begin ,body* ...)
-     `(begin ,@(expand-body-defines body*))]
-    [`(cond ,clauses ...)
-     `(cond ,@(map expand-cond-clause clauses))]
-    [`(if ,e0 ,e1 ,e2)
-     `(if ,(expand-defines e0) ,(expand-defines e1) ,(expand-defines e2))]
-    [`(if ,e0 ,e1)
-     `(if ,(expand-defines e0) ,(expand-defines e1))]
-    [`(,f ,args* ...)
-     `(,(expand-defines f) ,@(map expand-defines args*))]
-    [_ sexp]))
+(define-pass expand-defines : L14 (ir) -> L13 ()
+  (Expr : Expr (ir) -> Expr ()
+    ((define ,x ,e)
+     (error 'expand-defines "internal define not hoisted: ~a" x))
+    ((define (,x ,x* ...) ,body ...)
+     (error 'expand-defines "internal define not hoisted: ~a" x))
+    ((lambda (,x* ...) ,body ...)
+     `(lambda (,x* ...) ,(process-body body expand-defines)))
+    ((let/cc ,x ,body ...)
+     `(let/cc ,x ,(process-body body expand-defines)))
+    ((with-handler ,[e] ,body ...)
+     `(with-handler ,e ,(process-body body expand-defines)))
+    ((begin ,e* ...)
+     (process-body e* expand-defines))
+    ((let ((,x* ,[e*]) ...) ,body ...)
+     `(let ((,x* ,e*) ...) ,(process-body body expand-defines)))
+    ((letrec ((,x* ,[e*]) ...) ,body ...)
+     `(letrec ((,x* ,e*) ...) ,(process-body body expand-defines)))
+    ((let* ((,x* ,[e*]) ...) ,body ...)
+     `(let* ((,x* ,e*) ...) ,(process-body body expand-defines)))
+    ((let ,x ((,x* ,[e*]) ...) ,body ...)
+     `(let ,x ((,x* ,e*) ...) ,(process-body body expand-defines)))
+    ((cond (,e0 ,e1 ...) ... (else ,e* ...))
+     (define pairs (map cons e0 e1))
+     (define processed-clauses
+       (map (lambda (p)
+              `(,(expand-defines (car p)) ,(process-body (cdr p) expand-defines)))
+            pairs))
+     (define else-body (process-body e* expand-defines))
+     `(cond ,processed-clauses ... (else ,else-body)))
+    ((set! ,x ,[e])
+     `(set! ,x ,e))
+    ((,[e0] ,[e*] ...)
+     `(,e0 ,e* ...))))

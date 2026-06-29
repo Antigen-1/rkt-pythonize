@@ -65,8 +65,8 @@
     expand-more-cond
     make-cond-explicit
     expand-exn-handler
-    parse-L
-    expand-defines)
+    expand-defines
+    parse-L)
    code))
 
 (module+ test
@@ -254,14 +254,43 @@
             (vm-apply print (cons x (cons y null))))
           (dynamic-require "builtins" none))
         "42 43\n")
-  (test '((lambda ()
-           (define (fact n)
-             (if (equal? n 0)
-                 1
-                 (* n (fact (- n 1)))))
-           (fact 5)))
-        ""
-        #:example? #t)
+   (test '((lambda ()
+            (define (fact n)
+              (if (equal? n 0)
+                  1
+                  (* n (fact (- n 1)))))
+            (fact 5)))
+         ""
+         #:example? #t)
+   ;; Define function syntax (define (x x* ...) body)
+   (test '((lambda (mod)
+             (define print (get-attribute mod "print"))
+             (define (square n)
+               (* n n))
+             (define (add a b)
+               (+ a b))
+             (vm-apply print (cons (square 3) (cons (add 5 7) null))))
+           (dynamic-require "builtins" none))
+         "9 12\n")
+   ;; Define function with zero args
+   (test '((lambda (mod)
+             (define print (get-attribute mod "print"))
+             (define (say-hello)
+               (vm-apply print '("hello")))
+             (say-hello))
+           (dynamic-require "builtins" none))
+         "hello\n")
+   ;; Define function in begin
+   (test '(begin
+            (define (double n) (* n 2))
+            (print (double 21)))
+         "42\n")
+   ;; Define function in let body
+   (test '(let ((mod (dynamic-require "builtins" none)))
+            (define print (get-attribute mod "print"))
+            (define (add a b) (+ a b))
+            (vm-apply print (cons (add 3 4) null)))
+         "7\n")
   (test '(let ((mod (dynamic-require "builtins" none)))
            (define print (get-attribute mod "print"))
            (define x 10)
