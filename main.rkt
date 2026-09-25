@@ -18,7 +18,8 @@
          racket/port
          "core/base.rkt"
          "core/python.rkt"
-         "passes/macro.rkt")
+         "passes/macro.rkt"
+         "passes/make-explicit.rkt")
 
 (provide run-cli
          ;; the LB language
@@ -28,12 +29,16 @@
          variable?
          literal?
          datum?
-         ;; macro expansion: LM -> LB
+         ;; the surface language: LM -> LE -> LB
          LM
          parse-LM
          unparse-LM
          macro-signature?
          expand-macros
+         LE
+         parse-LE
+         unparse-LE
+         make-explicit
          ;; LB -> Python
          compile-LB
          python-name
@@ -43,14 +48,15 @@
 ;; there is no lexer to maintain; a source file with several top-level forms
 ;; becomes one `(begin form ...)`, and an empty file an empty `(begin)`.
 ;;
-;; The pipeline is: read, check as LM, expand macros into LB, compile to Python.
+;; The pipeline is: read, check as LM, expand macros into LE, make the bodies of
+;; `with-handler` and `trampoline` explicit, and compile the LB that is left.
 (define (transpile source)
   (define forms (read-forms source))
   (define program
     (cond [(null? forms) '(begin)]
           [(null? (cdr forms)) (car forms)]
           [else (cons 'begin forms)]))
-  (compile-LB (expand-macros (parse-LM program))))
+  (compile-LB (make-explicit (expand-macros (parse-LM program)))))
 
 (define (read-forms source)
   (define in (open-input-string source))

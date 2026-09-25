@@ -1,44 +1,29 @@
 #lang racket/base
 
-;; LB: the one and only language of this project.
+;; The LB language: the language the transpiler compiles.
 ;;
-;; The source syntax is Racket's s-expression syntax, so `read` *is* the front
-;; end -- there is no lexer of our own.  The inspiration taken from Clojure is
-;; only the shape of the transpiler: stay small, avoid clever transformations,
-;; and generate Python that a human can still read.  There is no CPS conversion
-;; and no Python runtime library: every line of the generated program comes from
-;; this language.
-;;
-;;   e ::= x                        variable
-;;       | l                        self-evaluating literal
-;;       | 'd                       quoted datum
-;;       | (define x e)             bind a value
-;;       | (define (x x* ...) e)    bind a procedure
-;;       | (trampoline e ...)       trampoline boundary: a tail call inside it
-;;                                  returns a thunk instead of growing the
-;;                                  Python stack
-;;       | (set! x e)               assign
-;;       | (raise e)                raise an exception
-;;       | (with-handler e1 e2)     call e2 with e1 installed as the handler
-;;                                  that `raise` reports to
-;;       | (begin e ...)            sequence
-;;       | (if e1 e2 e3)            conditional
-;;       | (e0 e* ...)              application
-;;
-;;   d ::= int | float | string | boolean | symbol | list | tuple | dict
-;;   l ::= int | float | string | boolean | tuple | dict   (self-evaluating)
-;;
-;;   int     1   -2   +3
-;;   float   1.0   -2.5e3   .5
-;;   string  "a\n"
-;;   boolean #t   #f
-;;   symbol  foo
-;;   list    (1 2 3)
-;;   tuple   #(1 2 3)
-;;   dict    #hash((a . 1) ("b" . 2))
-;;
-;; A program is one expression; a file with several top-level forms is read as
+;; A program is a statement; a file with several top-level forms is read as
 ;; `(begin form ...)`.
+;;
+;; Statements and expressions are different things here, and the grammar says
+;; so.  A statement is what a body, a `begin` in statement position, and the
+;; branch of a statement `if` are made of; an expression is what `if`, the
+;; argument of a call, and a `begin` in expression position are made of.  A
+;; definition, an assignment and a multi-body `with-handler` or `trampoline`
+;; are statements, so they cannot turn up in the middle of an expression and
+;; mean something else there.
+;;
+;; Two notes about the grammar below:
+;;
+;; * The statement forms come before the expression production of `Stmt`: a form
+;;   whose head is a keyword has to be read as that form, not as an application
+;;   of a variable that happens to share the name.
+;; * nanopass reads a statement where an expression is expected happily enough,
+;;   and hands the compiler a statement node.  The compiler is where that is
+;;   refused, with a message that says what happened.
+;;
+;; `import` is not a form: a Python module is a value, so `import-module` (the
+;; runtime function around `importlib.import_module`) is how a program gets one.
 
 (require nanopass/base
          racket/list)
@@ -51,37 +36,36 @@
          datum?
          procedure-signature?
          binding?
-         import-spec?
          binding-name
          binding-parts)
 
 (define-language LB
-  (entry Expr)
+  (entry Stmt)
   (terminals
    (variable (x))
    (literal (l))
    (datum (d))
-   (binding (b))
-   (import-spec (spec)))
-  (Expr (e body)
-        x
-        l
-        'd
+   (binding (b)))
+  (Stmt (s body)
         ;; `define` has one shape, not two.  A binding is either a variable or
         ;; the signature of a procedure, and one terminal covers both: two
         ;; three-element productions would not work, because nanopass does not
         ;; fall back to the next production when a form matches the shape of one
         ;; but fails its terminal check.
-        (define b e)
-        (trampoline body ...)
+        (define b body)
         (set! x e)
-        (raise e)
-        (with-handler e1 e2)
-        (begin e ...)
+        (begin s ...)
+        (if e1 s1 s2)
+        e)
+  (Expr (e)
+        x
+        l
+        'd
         (if e1 e2 e3)
-        ;; like every keyword form, `import` has to be listed before the
-        ;; application production, whose shape it shares
-        (import spec* ...)
+        (begin e1 e* ...)
+        (with-handler e1 e2)
+        (trampoline e1)
+        (raise e1)
         (e0 e* ...)))
 
 ;; A variable is just a symbol: anything that is not a literal or a form is a
@@ -108,21 +92,6 @@
          (cond [(null? params) #t]
                [(pair? params) (and (variable? (car params)) (loop (cdr params)))]
                [else (variable? params)]))))
-
-;; What an `import` imports: a module, a module under another name, or names a
-;; module exports.
-;;
-;;   os                    -> import os
-;;   (as os.path path)     -> import os.path as path
-;;   (ref math sqrt pi)    -> from math import sqrt, pi
-(define (import-spec? v)
-  (or (variable? v)
-      (and (list? v)
-           (pair? v)
-           (case (car v)
-             [(as) (and (= 3 (length v)) (variable? (cadr v)) (variable? (caddr v)))]
-             [(ref) (and (>= (length v) 3) (andmap variable? (cdr v)))]
-             [else #f]))))
 
 ;; What a `define` binds: a variable, or a procedure signature.
 (define (binding? v)

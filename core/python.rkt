@@ -5,6 +5,12 @@
 ;; The generated program is self-contained: it carries only the prelude pieces
 ;; it actually uses, and nothing else.  There is no Python runtime library.
 ;;
+;; A statement is what a body, a `begin` in statement position, and the branch
+;; of a statement `if` are made of; an expression is everything else, and an
+;; expression is always a Python expression.  Nothing in a value position
+;; emits a statement of its own, so a `define`, a `set!` or a `with-handler`
+;; cannot hide inside one and mean something else there.
+;;
 ;;   (define x e)            x = e                       (module level)
 ;;   (define (f x* ...) e)   def f(x* ...): ...          (module level)
 ;;   (trampoline e ...)      the body returns a 0-arity procedure, and
@@ -15,8 +21,11 @@
 ;;   (set! x e)              x = e                       (nonlocal when needed)
 ;;   (raise e)               raise _Raised(e)
 ;;   (with-handler h e)      try: ... except ...: h(value)
-;;   (begin e ...)           statements, or _begin(...) as a value
-;;   (if e1 e2 e3)           e2 if e1 else e3, or an if/else statement
+;;   (begin s ...)           statements, or _begin(...) as a value
+;;   (if e1 s1 s2)           an if/else statement, of statements
+;;   (if e1 e2 e3)           e2 if e1 else e3
+;;   (with-handler h e)      _with_handler(h, lambda: e)
+;;   (raise e)               _raise(e), or a raise statement
 ;;   (e0 e* ...)             e0(e* ...)
 ;;   'd / l                  a literal Python value
 ;;
@@ -44,7 +53,8 @@
 
 ;; Names the generated prelude defines: a user variable with one of these names
 ;; gets a suffix.
-(define prelude-names '("Symbol" "_Raised" "_trampoline" "_begin"))
+(define prelude-names '("Symbol" "_Raised" "_trampoline" "_begin" "_raise"
+                        "_with_handler"))
 
 (define character-names
   (hasheq #\- "_" #\? "_p" #\! "_b" #\< "_lt" #\> "_gt" #\= "_eq" #\/ "_slash"
@@ -215,6 +225,25 @@
    '("def object_has_attr_p(obj, name):"
      "    \"\"\"(object-has-attr? o name): is the attribute there, that is hasattr(o, name).\"\"\""
      "    return hasattr(obj, name)")
+   'raise
+   '("def _raise(value):"
+     "    \"\"\"(raise v) where a value is wanted: it never comes back.\"\"\""
+     "    raise _Raised(value)")
+   'with-handler
+   '("def _with_handler(handler, body):"
+     "    \"\"\"(with-handler h e): the body, with h handling what it raises.\"\"\""
+     "    try:"
+     "        return body()"
+     "    except _Raised as error:"
+     "        return handler(error.value)"
+     "    except Exception as error:"
+     "        return handler(error)")
+   'import-module
+   '("import importlib"
+     ""
+     "def import_module(name):"
+     "    \"\"\"(import-module \"name\"): the module, like importlib.import_module.\"\"\""
+     "    return importlib.import_module(name)")
    'list
    '("_builtin_list = list"
      ""
@@ -416,23 +445,25 @@
 ;; Pieces that cannot be emitted without others.
 (define prelude-dependencies
   (hasheq 'gensym '(symbol)
+          'raise '(raised)
+          'with-handler '(raised)
           ;; a form a program builds at run time may call any of the runtime
           ;; functions, so eval brings them all along
-          'eval '(symbol raised begin
+          'eval '(symbol raised begin raise with-handler import-module
                   object-ref object-set! object-get-attr object-set-attr! object-has-attr?
                   list apply keyword-apply gensym)))
 
 (define prelude-order
   '(symbol raised trampoline begin
     object-ref object-set! object-get-attr object-set-attr! object-has-attr?
-    list apply keyword-apply gensym eval))
+    list apply keyword-apply gensym raise with-handler import-module eval))
 
 ;; The Python-side runtime functions.  A program reaches them as free variables,
 ;; and each one brings its prelude piece along; a program that defines one of
 ;; these names itself simply replaces the runtime function.
 (define runtime-functions
   '(object-ref object-set! object-get-attr object-set-attr! object-has-attr?
-    list apply keyword-apply gensym eval))
+    list apply keyword-apply gensym import-module eval))
 
 
 
@@ -446,11 +477,10 @@
 ;; temps:    counter for temporaries
 ;; scopes:   innermost first; each scope is a mutable list of the names it
 ;;           introduces.  A function scope carries its name, the module scope #f.
-;; imports:  the import lines of the program, in order, first one first
 ;; trampolines: the procedures of the program whose body uses `trampoline`
 ;; driving?: #f while emitting such a body: the enclosing driver forces the
 ;;           bounces, so the body itself must not start one
-(struct context (lines indent features temps scopes trampolines driving? imports)
+(struct context (lines indent features temps scopes trampolines driving?)
   #:mutable)
 
 ;; One lexical scope: its name (#f for the module scope) and the names it
@@ -458,30 +488,10 @@
 (struct scope (name names) #:mutable)
 
 (define (make-context trampolines)
-  (context '() 0 '() 0 (list (scope #f '())) trampolines #t '()))
+  (context '() 0 '() 0 (list (scope #f '())) trampolines #t))
 
 (define (emit! ctx text)
   (set-context-lines! ctx (cons (cons (context-indent ctx) text) (context-lines ctx))))
-
-;; The Python line an import spec becomes.  A module name is written as it is --
-;; it is a module path, not a Python name -- a name a module exports is written
-;; as the module has it, and an alias is a name the program binds, so it is
-;; munged like any other.
-(define (import-line spec)
-  (cond [(symbol? spec) (format "import ~a" spec)]
-        [(eq? (car spec) 'as)
-         (format "import ~a as ~a" (cadr spec) (python-name (caddr spec)))]
-        [else
-         (format "from ~a import ~a"
-                 (cadr spec)
-                 (string-join (map (lambda (name) (format "~a" name)) (cddr spec))
-                              ", "))]))
-
-;; An `import` is an import statement, so it belongs at the top of the program
-;; whatever position the source wrote it in, and only once.
-(define (emit-import! ctx line)
-  (unless (member line (context-imports ctx))
-    (set-context-imports! ctx (append (context-imports ctx) (list line)))))
 
 (define (emit-lines! ctx lines)
   (for ([line (in-list lines)])
@@ -547,25 +557,35 @@
 ;; Scope analysis: what does a body assign, and what does it define?
 ;; ---------------------------------------------------------------------------
 
-(define (assigned-names e)
+(define (assigned-names s)
+  (nanopass-case (LB Stmt) s
+    ((define ,b ,body) (assigned-names-expr body))
+    ((set! ,x ,e1) (cons x (assigned-names-expr e1)))
+    ((begin ,s* ...) (append* (map assigned-names s*)))
+    ((if ,e1 ,s1 ,s2)
+     (append (assigned-names-expr e1) (assigned-names s1) (assigned-names s2)))
+    (else (assigned-names-expr s))))
+
+(define (assigned-names-expr e)
   (nanopass-case (LB Expr) e
-    ((set! ,x ,e1) (cons x (assigned-names e1)))
-    ((define ,b ,e1) (assigned-names e1))
-    ((raise ,e1) (assigned-names e1))
-    ((with-handler ,e1 ,e2) (append (assigned-names e1) (assigned-names e2)))
-    ((begin ,e* ...) (append* (map assigned-names e*)))
-    ((trampoline ,body ...) (append* (map assigned-names body)))
-    ((if ,e1 ,e2 ,e3) (append (assigned-names e1) (assigned-names e2) (assigned-names e3)))
-    ((,e0 ,e* ...) (append (assigned-names e0) (append* (map assigned-names e*))))
+    ((if ,e1 ,e2 ,e3)
+     (append (assigned-names-expr e1)
+             (assigned-names-expr e2)
+             (assigned-names-expr e3)))
+    ((begin ,e1 ,e* ...)
+     (append (assigned-names-expr e1) (append* (map assigned-names-expr e*))))
+    ((with-handler ,e1 ,e2) (append (assigned-names-expr e1) (assigned-names-expr e2)))
+    ((trampoline ,e1) (assigned-names-expr e1))
+    ((raise ,e1) (assigned-names-expr e1))
+    ((,e0 ,e* ...) (append (assigned-names-expr e0) (append* (map assigned-names-expr e*))))
     (else '())))
 
-(define (defined-names e)
-  (nanopass-case (LB Expr) e
-    ((define ,b ,e1) (list (binding-name b)))
-    ((with-handler ,e1 ,e2) (defined-names e2))
-    ((begin ,e* ...) (append* (map defined-names e*)))
-    ((trampoline ,body ...) (append* (map defined-names body)))
-    ((if ,e1 ,e2 ,e3) (append (defined-names e2) (defined-names e3)))
+(define (defined-names s)
+  (nanopass-case (LB Stmt) s
+    ;; a nested define is a procedure of its own: its body belongs to it
+    ((define ,b ,body) (list (binding-name b)))
+    ((begin ,s* ...) (append* (map defined-names s*)))
+    ((if ,e1 ,s1 ,s2) (append (defined-names s1) (defined-names s2)))
     (else '())))
 
 ;; ---------------------------------------------------------------------------
@@ -574,33 +594,58 @@
 
 ;; Does this body use `trampoline` itself?  A nested `define` is a procedure of
 ;; its own and is analysed on its own.
-(define (uses-trampoline? e)
+(define (uses-trampoline? s)
+  (nanopass-case (LB Stmt) s
+    ((define ,b ,body) #f)
+    ((set! ,x ,e1) (uses-trampoline?-expr e1))
+    ((begin ,s* ...) (ormap uses-trampoline? s*))
+    ((if ,e1 ,s1 ,s2)
+     (or (uses-trampoline?-expr e1) (uses-trampoline? s1) (uses-trampoline? s2)))
+    (else (uses-trampoline?-expr s))))
+
+(define (uses-trampoline?-expr e)
   (nanopass-case (LB Expr) e
-    ((trampoline ,body ...) #t)
-    ((define ,b ,e1) #f)
-    ((raise ,e1) (uses-trampoline? e1))
-    ((with-handler ,e1 ,e2) (uses-trampoline? e2))
-    ((begin ,e* ...) (ormap uses-trampoline? e*))
-    ((set! ,x ,e1) (uses-trampoline? e1))
-    ((if ,e1 ,e2 ,e3) (or (uses-trampoline? e1) (uses-trampoline? e2) (uses-trampoline? e3)))
-    ((,e0 ,e* ...) (or (uses-trampoline? e0) (ormap uses-trampoline? e*)))
+    ((trampoline ,e1) #t)
+    ((if ,e1 ,e2 ,e3)
+     (or (uses-trampoline?-expr e1) (uses-trampoline?-expr e2) (uses-trampoline?-expr e3)))
+    ((begin ,e1 ,e* ...)
+     (or (uses-trampoline?-expr e1) (ormap uses-trampoline?-expr e*)))
+    ((with-handler ,e1 ,e2) (or (uses-trampoline?-expr e1) (uses-trampoline?-expr e2)))
+    ((raise ,e1) (uses-trampoline?-expr e1))
+    ((,e0 ,e* ...) (or (uses-trampoline?-expr e0) (ormap uses-trampoline?-expr e*)))
     (else #f)))
 
 ;; Every procedure of the program whose body uses `trampoline`, so that a bounce
 ;; can call its body instead of its public entry.
-(define (trampoline-procedures e)
+(define (trampoline-procedures s)
+  (nanopass-case (LB Stmt) s
+    ((define ,b ,body)
+     (append (if (and (pair? b) (uses-trampoline? body)) (list (binding-name b)) '())
+             (trampoline-procedures body)))
+    ((set! ,x ,e1) (trampoline-procedures-expr e1))
+    ((begin ,s* ...) (append* (map trampoline-procedures s*)))
+    ((if ,e1 ,s1 ,s2)
+     (append (trampoline-procedures-expr e1)
+             (trampoline-procedures s1)
+             (trampoline-procedures s2)))
+    (else (trampoline-procedures-expr s))))
+
+(define (trampoline-procedures-expr e)
   (nanopass-case (LB Expr) e
-    ((define ,b ,e1)
-     (append (if (and (pair? b) (uses-trampoline? e1)) (list (binding-name b)) '())
-             (trampoline-procedures e1)))
-    ((trampoline ,body ...) (append* (map trampoline-procedures body)))
-    ((raise ,e1) (trampoline-procedures e1))
-    ((with-handler ,e1 ,e2) (append (trampoline-procedures e1) (trampoline-procedures e2)))
-    ((begin ,e* ...) (append* (map trampoline-procedures e*)))
-    ((set! ,x ,e1) (trampoline-procedures e1))
     ((if ,e1 ,e2 ,e3)
-     (append (trampoline-procedures e1) (trampoline-procedures e2) (trampoline-procedures e3)))
-    ((,e0 ,e* ...) (append (trampoline-procedures e0) (append* (map trampoline-procedures e*))))
+     (append (trampoline-procedures-expr e1)
+             (trampoline-procedures-expr e2)
+             (trampoline-procedures-expr e3)))
+    ((begin ,e1 ,e* ...)
+     (append (trampoline-procedures-expr e1)
+             (append* (map trampoline-procedures-expr e*))))
+    ((with-handler ,e1 ,e2)
+     (append (trampoline-procedures-expr e1) (trampoline-procedures-expr e2)))
+    ((trampoline ,e1) (trampoline-procedures-expr e1))
+    ((raise ,e1) (trampoline-procedures-expr e1))
+    ((,e0 ,e* ...)
+     (append (trampoline-procedures-expr e0)
+             (append* (map trampoline-procedures-expr e*))))
     (else '())))
 
 ;; A procedure that uses `trampoline` is emitted twice: `f` drives the
@@ -664,9 +709,9 @@
     (',d (python-constant ctx d))
     ((,e0 ,e* ...)
      (or (and (symbol? e0) (operator-expression ctx e0 e*))
-         (let* ([callee (if (and bounce? (symbol? e0))
-                            (bounce-name ctx e0)
-                            (python-expr ctx e0))]
+         (let* ([callee (cond [(and bounce? (symbol? e0)) (bounce-name ctx e0)]
+                              [(symbol? e0) (check-callee ctx e0) (python-expr ctx e0)]
+                              [else (python-expr ctx e0)])]
                 [call (format "~a(~a)"
                               callee
                               (string-join (map (lambda (a) (python-expr ctx a)) e*) ", "))])
@@ -681,50 +726,52 @@
              (python-expr ctx e2 bounce?)
              (python-condition ctx e1)
              (python-expr ctx e3 bounce?)))
-    ((import ,spec* ...)
-     (for ([spec (in-list spec*)]) (emit-import! ctx (import-line spec)))
-     "None")
-    ((begin ,e* ...)
-     (cond [(null? e*) (need! ctx 'begin) "_begin()"]
-           [(null? (cdr e*)) (python-expr ctx (car e*) bounce?)]
+    ((begin ,e1 ,e* ...)
+     (cond [(null? e*) (python-expr ctx e1 bounce?)]
            [else
             ;; only the last expression is in tail position, so only it bounces
             (need! ctx 'begin)
             (format "_begin(~a)"
                     (string-join
-                     (append (map (lambda (e) (python-expr ctx e)) (drop-right e* 1))
+                     (append (map (lambda (e) (python-expr ctx e))
+                                  (cons e1 (drop-right e* 1)))
                              (list (python-expr ctx (last e*) bounce?)))
                      ", "))]))
-    ((trampoline ,body ...)
-     (cond
-       [(null? body) "None"]
-       [else
-        (for ([e (in-list (drop-right body 1))]) (emit-stmt! ctx e))
-        (define bounced (python-expr ctx (last body) #t))
-        (need! ctx 'trampoline)
-        ;; in bounce position the enclosing driver does the driving
-        (if bounce? bounced (format "_trampoline(~a)" bounced))]))
-    ((set! ,x ,e1)
-     (emit! ctx (format "~a = ~a" (python-name x) (python-expr ctx e1)))
-     "None")
-    ((define ,b ,e1)
-     (emit-stmt! ctx e)
-     "None")
-    ((raise ,e1)
-     (need! ctx 'raised)
-     (emit! ctx (format "raise _Raised(~a)" (python-expr ctx e1)))
-     "None")
     ((with-handler ,e1 ,e2)
-     (need! ctx 'raised)
-     (define tmp (temp! ctx))
-     (emit! ctx (format "~a = None" tmp))
-     (emit! ctx "try:")
-     (emit-block! ctx (lambda () (emit! ctx (format "~a = ~a" tmp (python-expr ctx e2)))))
-     (emit! ctx "except _Raised as _e:")
-     (emit-block! ctx (lambda () (emit! ctx (format "~a = ~a(_e.value)" tmp (python-expr ctx e1)))))
-     (emit! ctx "except Exception as _e:")
-     (emit-block! ctx (lambda () (emit! ctx (format "~a = ~a(_e)" tmp (python-expr ctx e1)))))
-     tmp)))
+     ;; the handler is a value, so it is evaluated before the body runs; the body
+     ;; is a procedure so that it runs where it stands, and inside a Python try
+     (need! ctx 'with-handler)
+     (format "_with_handler(~a, lambda: ~a)"
+             (python-expr ctx e1)
+             (python-expr ctx e2)))
+    ((trampoline ,e1)
+     (need! ctx 'trampoline)
+     (define bounced (python-expr ctx e1 #t))
+     ;; in bounce position the enclosing driver does the driving
+     (if bounce? bounced (format "_trampoline(~a)" bounced)))
+    ((raise ,e1)
+     (need! ctx 'raise)
+     (format "_raise(~a)" (python-expr ctx e1)))
+    (else
+     (error 'compile-LB "a statement cannot be used as an expression: ~a" e))))
+
+;; A form whose head is a statement keyword, where an expression was wanted.
+;; The grammar keeps statements out of expression positions, but nanopass reads
+;; one happily and the shape of `(define x e)` is the shape of a call, so this is
+;; where it is refused, with a message that says what happened.  A program that
+;; binds one of these names itself is left alone.
+(define (check-callee ctx name)
+  (when (and (not (bound-name? ctx name))
+             (memq name '(define set! import trampoline with-handler)))
+    (case name
+      [(import)
+       (error 'compile-LB
+              "import is not a form: (import-module \"name\") is how a module becomes a value")]
+      [(trampoline with-handler)
+       (error 'compile-LB
+              "~a takes one body here: LE, the language a source is written in, takes any number"
+              name)]
+      [else (error 'compile-LB "a statement cannot be used as an expression: ~a" name)])))
 
 ;; LB's truth: only #f is false, so 0, 0.0, "", '() and None are all true.
 ;; A condition that is already a constant needs no test of its own.
@@ -742,52 +789,45 @@
 ;; Statement positions
 ;; ---------------------------------------------------------------------------
 
-(define (emit-stmt! ctx e [tail? #f])
-  (nanopass-case (LB Expr) e
-    ((define ,b ,e1)
-     (cond [(pair? b) (emit-function! ctx b e1)]
+(define (emit-stmt! ctx s [tail? #f])
+  (nanopass-case (LB Stmt) s
+    ((define ,b ,body)
+     (cond [(pair? b) (emit-function! ctx b body)]
            [else
             (scope-define! ctx b)
-            (emit! ctx (format "~a = ~a" (python-name b) (python-expr ctx e1)))]))
+            (emit! ctx (format "~a = ~a" (python-name b) (python-expr ctx body)))]))
     ((set! ,x ,e1)
      (emit! ctx (format "~a = ~a" (python-name x) (python-expr ctx e1))))
-    ((raise ,e1)
-     (need! ctx 'raised)
-     (emit! ctx (format "raise _Raised(~a)" (python-expr ctx e1))))
-    ((with-handler ,e1 ,e2)
-     (need! ctx 'raised)
-     (define keyword (if tail? "return " ""))
-     (define handler-text (python-expr ctx e1))
-     (emit! ctx "try:")
-     (emit-block! ctx (lambda () (emit-stmt! ctx e2 tail?)))
-     (emit! ctx "except _Raised as _e:")
-     (emit-block! ctx (lambda () (emit! ctx (format "~a~a(_e.value)" keyword handler-text))))
-     (emit! ctx "except Exception as _e:")
-     (emit-block! ctx (lambda () (emit! ctx (format "~a~a(_e)" keyword handler-text)))))
-    ((import ,spec* ...)
-     (for ([spec (in-list spec*)]) (emit-import! ctx (import-line spec))))
-    ((begin ,e* ...)
-     (emit-sequence! ctx e* tail?))
-    ((trampoline ,body ...)
-     (unless (null? body)
-       (for ([e (in-list (drop-right body 1))]) (emit-stmt! ctx e))
-       (define bounced (python-expr ctx (last body) #t))
-       (need! ctx 'trampoline)
-       ;; the tail of a trampoline body hands its bounce to the enclosing
-       ;; driver; anywhere else a driver is needed right here
-       (define driven (if (and tail? (not (context-driving? ctx)))
-                          bounced
-                          (format "_trampoline(~a)" bounced)))
-       (emit! ctx (format "~a~a" (if tail? "return " "") driven))))
-    ((if ,e1 ,e2 ,e3)
+    ((begin ,s* ...)
+     (emit-sequence! ctx s* tail?))
+    ((if ,e1 ,s1 ,s2)
      (emit! ctx (format "if ~a:" (python-condition ctx e1)))
-     (emit-block! ctx (lambda () (emit-stmt! ctx e2 tail?)))
+     (emit-block! ctx (lambda () (emit-stmt! ctx s1 tail?)))
      (emit! ctx "else:")
-     (emit-block! ctx (lambda () (emit-stmt! ctx e3 tail?))))
+     (emit-block! ctx (lambda () (emit-stmt! ctx s2 tail?))))
     (else
-     (cond [tail? (emit! ctx (format "return ~a" (python-expr ctx e)))]
-           [(pure-value? e) (void)]
-           [else (emit! ctx (python-expr ctx e))]))))
+     ;; an expression in statement position: its value if this is a tail, its
+     ;; effect otherwise
+     (cond [tail? (emit! ctx (format "return ~a" (tail-expression ctx s)))]
+           [(pure-value? s) (void)]
+           [else (emit! ctx (python-expr ctx s))]))))
+
+;; The value a body ends with.  Inside a trampoline body the trampoline's own
+;; expression is not driven here: it is the bounce the enclosing driver calls.
+(define (tail-expression ctx e)
+  (cond [(and (not (context-driving? ctx)) (trampoline-expression? e))
+         (python-expr ctx (trampoline-expression-body e) #t)]
+        [else (python-expr ctx e)]))
+
+(define (trampoline-expression? e)
+  (nanopass-case (LB Expr) e
+    ((trampoline ,e1) #t)
+    (else #f)))
+
+(define (trampoline-expression-body e)
+  (nanopass-case (LB Expr) e
+    ((trampoline ,e1) e1)
+    (else e)))
 
 (define (pure-value? e)
   (nanopass-case (LB Expr) e
@@ -864,7 +904,6 @@
   (define ctx (make-context (trampoline-procedures program)))
   (emit-stmt! ctx program #f)
   (define program-lines (render-lines (reverse (context-lines ctx))))
-  (define imports (context-imports ctx))
   (define prelude
     (append*
      (for/list ([feature (in-list prelude-order)]
@@ -872,7 +911,6 @@
        (append (hash-ref prelude-pieces feature) (list "")))))
   (string-append
    (string-join (append (list "# generated by rkt-pythonize")
-                        (if (null? imports) '() (cons "" imports))
                         (if (null? prelude) '() (cons "" prelude))
                         program-lines)
                 "\n")

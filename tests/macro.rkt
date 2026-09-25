@@ -131,24 +131,24 @@ SRC
      "42\n"))
 
   (test-case "the pass lowers macros into eval of the call form"
-    (check-equal? (unparse-LB (expand-macros (parse-LM '(print (+ 1 2)))))
+    (check-equal? (unparse-LE (expand-macros (parse-LM '(print (+ 1 2)))))
                   '(print (+ 1 2)))
     (check-equal?
-     (unparse-LB (expand-macros (parse-LM '(defmacro (twice x) (list '+ x x)))))
+     (unparse-LE (expand-macros (parse-LM '(defmacro (twice x) (list '+ x x)))))
      '(begin (define _macros (quote (twice)))
              (define (twice x) (list '+ x x))))
     (check-equal?
-     (unparse-LB (expand-macros (parse-LM '(begin (defmacro (twice x) x) (print (twice 21))))))
+     (unparse-LE (expand-macros (parse-LM '(begin (defmacro (twice x) x) (print (twice 21))))))
      '(begin (define _macros (quote (twice)))
              (begin (define (twice x) x) (print (eval (quote (twice 21)))))))
     ;; a dotted signature stays dotted: it is the signature of the procedure
     (check-equal?
-     (unparse-LB (expand-macros (parse-LM '(defmacro (m a b . rest) b))))
+     (unparse-LE (expand-macros (parse-LM '(defmacro (m a b . rest) b))))
      '(begin (define _macros (quote (m)))
              (define (m a b . rest) b)))
     ;; a quoted form is data, so a macro call inside it stays untouched
     (check-equal?
-     (unparse-LB (expand-macros (parse-LM '(begin (defmacro (m x) x) (print (quote (m 1)))))))
+     (unparse-LE (expand-macros (parse-LM '(begin (defmacro (m x) x) (print (quote (m 1)))))))
      '(begin (define _macros (quote (m)))
              (begin (define (m x) x) (print (quote (m 1)))))))
 

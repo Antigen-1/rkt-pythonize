@@ -6,28 +6,49 @@ The source syntax is Racket's s-expression syntax, so `read` is the whole front
 end; the language is called **LB** and lives in `core/base.rkt`:
 
 ```racket
-e ::= x                        variable
-    | l                        self-evaluating literal
-    | 'd                       quoted datum
+s ::= e                        an expression, for its value or its effect
     | (define x e)             bind a value
     | (define (x x* ...) e)    bind a procedure
     | (define (x x* ... . rest) e)
     |                          bind a procedure; the rest parameter collects the
     |                          remaining arguments into a list
-    | (trampoline e ...)       call what the body returns while it is a procedure
     | (set! x e)               assign
-    | (raise e)                raise an exception
-    | (with-handler e1 e2)     run e2 with e1 as the handler of `raise`
-    | (begin e ...)            sequence
+    | (begin s ...)            a sequence, of statements here
+    | (if e1 s1 s2)            a conditional of statements
+
+e ::= x                        variable
+    | l                        self-evaluating literal
+    | 'd                       quoted datum
     | (if e1 e2 e3)            conditional
-    | (import spec* ...)       import Python modules
+    | (begin e1 e* ...)        a sequence, of expressions here
+    | (with-handler e1 e2)     run e2 with e1 as the handler of `raise`
+    | (trampoline e1)          call what the body returns while it is a procedure
+    | (raise e1)               raise an exception
     | (e0 e* ...)              application
 
 d ::= int | float | string | boolean | symbol | list | tuple | dict
 l ::= int | float | string | boolean | tuple | dict
 ```
 
-LM, in `passes/macro.rkt`, is LB plus macros:
+A statement is what a body, a `begin` in statement position and the branch of a
+statement `if` are made of; an expression is what `if`, a call argument and a
+`begin` in expression position are made of.  Nothing in an expression position
+is a statement, so a definition cannot hide inside one and mean something else
+there, and `with-handler` and `trampoline` are expressions like any other: the
+handler runs where it stands, and a value position guards it.
+
+`import` is not a form.  A module is a value, so `import-module` (around
+`importlib.import_module`) is how a program gets one:
+
+```racket
+(define math (import-module "math"))
+(print ((object-get-attr math "sqrt") 16))       ; 4.0
+(define sqrt (object-get-attr (import-module "math") "sqrt"))
+```
+
+LE, in `passes/make-explicit.rkt`, is LB with any number of bodies in
+`with-handler` and `trampoline`; the pass wraps the extra ones in the `begin`
+the core language has room for.  LM, in `passes/macro.rkt`, is LE plus macros:
 
 ```racket
 (defmacro (name param ...) e)           fixed arity
@@ -117,24 +138,11 @@ Reaching into Python is done with five more, so nothing needs to spell out
 reflection:
 
 ```racket
-(import math)                                   ; import math
-(print ((object-get-attr math "sqrt") 16))      ; 4.0
 (object-set! xs 1 99)                           ; xs[1] = 99
 (object-ref xs 0)                               ; xs[0]
 (object-get-attr "abc" "upper")                 ; "abc".upper
 (object-set-attr! point "x" 1)                  ; setattr(point, "x", 1)
 (object-has-attr? xs "append")                  ; hasattr(xs, "append")
-```
-
-`(import spec* ...)` becomes top-level `import` statements in the generated
-program, wherever the source writes it, once per line: a name is a module,
-`(as mod alias)` is a module under another name, and `(ref mod name* ...)` is
-`from mod import name, ...`.
-
-```racket
-(import math)                  ; import math
-(import (as os.path path))     ; import os.path as path
-(import (ref math sqrt pi))    ; from math import sqrt, pi
 ```
 
 Design notes:
@@ -152,11 +160,10 @@ Design notes:
 * `if` uses LB's truth, which is Lisp's: only `#f` is false, so `0`, `0.0`,
   `""`, `'()` and Python's `None` are all true.  (`and`, `or` and `not` are the
   Python operators, and keep Python's truth.)
-* `define`, `import`, `set!` and `raise` are statements, and belong where a
-  statement goes: the top level, a `begin`, a function body, a branch of a
-  statement `if`.  They can be written in a value position -- the value is
-  `None` -- but the statement is then emitted before the expression that asked
-  for it, so `(print (if c (set! x 1) 0))` sets `x` whether `c` holds or not.
+* `define` and `set!` are statements: they belong at the top level, in a
+  `begin`, in a function body, or in a branch of a statement `if`.  Written in
+  an expression position they are a compile-time error, so nothing is emitted
+  somewhere the source did not put it.
 * `raise` builds an `_Raised` exception and `with-handler` catches `_Raised`
   (handing the raised value to the handler) as well as any other Python
   exception (handing the exception object to it).
@@ -178,13 +185,15 @@ Layout:
 ```
 main.rkt                     the package module, the pipeline, and the command line entry point
 core/base.rkt                the LB language definition (grammar, predicates, parser)
-passes/macro.rkt             LM (LB plus defmacro) -> LB
+passes/make-explicit.rkt     LE (LB with multi-body trampoline and with-handler) -> LB
+passes/macro.rkt             LM (LE plus defmacro) -> LE
 core/python.rkt              LB -> Python
 scribblings/rkt-pythonize.scrbl  the manual
 tests/LB.rkt                 grammar and parser tests
 tests/python.rkt             end-to-end tests: LB source -> Python -> a real interpreter
 tests/main.rkt               command line tests
 tests/macro.rkt              macro and runtime function tests
+tests/explicit.rkt           the surface language and the make-explicit pass
 tests/utilities.rkt          helpers shared by the end-to-end tests
 ```
 

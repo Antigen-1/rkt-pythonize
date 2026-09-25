@@ -59,7 +59,7 @@
 SRC
      "120\n"))
 
-  (test-case "define and import are statements"
+  (test-case "statements and expressions are different things"
     ;; in a statement position a define is a statement like any other, so the
     ;; branch of a statement if guards it
     (check-python-output
@@ -73,15 +73,21 @@ SRC
      "0\n2\n")
     ;; an empty branch is a Python syntax error without its pass
     (check-python-output "(begin (if #f 1 2) (print \"after\"))" "after\n")
-    ;; a body that is a define, or an import, answers None
+    ;; a body that is a define answers None
     (check-python-output "(define (f) (define n 1))\n(print (f))" "None\n")
-    (check-python-output "(define (f) (import math))\n(print (f))" "None\n")
-    (check-python-contains "(define (f) (import math))\n(print (f))" "def f():\n    pass")
-    ;; in a value position both answer None, and the statement is emitted ahead
-    ;; of the expression that wanted the value
-    (check-python-output "(print (define x 1))" "None\n")
-    (check-python-output "(print (import math))" "None\n")
-    (check-python-output "(define m (import math))\n(print m)" "None\n"))
+    (check-python-output "(define (f) #f)\n(print (f))" "False\n")
+    ;; a statement cannot be used as an expression: where one is written there,
+    ;; the compiler says so instead of emitting it somewhere it does not belong
+    (check-exn exn:fail? (lambda () (transpile "(print (define x 1))\n")))
+    (check-exn exn:fail? (lambda () (transpile "(print (if #t (define x 1) 2))\n")))
+    (check-exn exn:fail? (lambda () (transpile "(define x 0)\n(print (if #f (set! x 1) 7))\n")))
+    (check-exn exn:fail? (lambda () (transpile "(define x (set! y 1))\n")))
+    ;; and a with-handler in a value position is guarded, which it could not be
+    ;; when it emitted a statement of its own
+    (check-python-output "(print (if #f (with-handler print (raise 1)) 7))" "7\n")
+    (check-python-output
+     "(define (recover e) (+ e 1))\n(print (with-handler recover (raise 41)))"
+     "42\n"))
 
   (test-case "a dotted parameter list collects the remaining arguments"
     (check-python-output
@@ -132,13 +138,15 @@ SRC
 (print ((make-counter)))
 SRC
      "1\n2\n1\n")
-    ;; the bounces of a trampolined closure assign an enclosing local
+    ;; a trampoline body is an expression, so a closure that counts through one
+    ;; calls a procedure that assigns
     (check-python-output
      #<<SRC
 (define (make-counter)
   (begin
     (define n 0)
-    (define (tick) (trampoline (begin (set! n (+ n 1)) n)))
+    (define (bump) (begin (set! n (+ n 1)) n))
+    (define (tick) (trampoline (bump)))
     tick))
 (define c (make-counter))
 (print (c))
@@ -181,7 +189,6 @@ SRC
      "42\n")
     ;; a value that is not a procedure is the value
     (check-python-output "(print (trampoline 7))" "7\n")
-    (check-python-output "(print (trampoline))" "None\n")
     (check-python-output "(print (trampoline (list 1 2)))" "[1, 2]\n")
     ;; a tail call of the body is what the trampoline calls
     (check-python-source
@@ -338,7 +345,7 @@ SRC
      "ABC\nTrue\nFalse\n")
     (check-python-output
      #<<SRC
-(import types)
+(define types (import-module "types"))
 (define point ((object-get-attr types "SimpleNamespace")))
 (object-set-attr! point "x" 1)
 (object-set-attr! point "y" 2)
@@ -346,58 +353,31 @@ SRC
 SRC
      "3\n"))
 
-  (test-case "import is an import statement"
+  (test-case "a module is a value, and import-module is how a program gets one"
     (check-python-output
      #<<SRC
-(import math)
+(define math (import-module "math"))
 (print ((object-get-attr math "sqrt") 16))
 SRC
      "4.0\n")
-    ;; it is a top-level import wherever the source writes it, and once only
-    (check-equal?
-     (for/list ([line (in-list (string-split
-                                (transpile "(define (f) (begin (import math) 1))\n(import math)\n")
-                                "\n"))]
-                #:when (string=? line "import math"))
-       line)
-     '("import math"))
-    (check-python-output "(import)\n(print 1)" "1\n")
     (check-python-output
      #<<SRC
-(import (ref math sqrt))
-(print (sqrt 16))
-SRC
-     "4.0\n")
-    (check-python-output
-     #<<SRC
-(import (as os.path path))
+(define path (import-module "os.path"))
 (print ((object-get-attr path "basename") "/a/b"))
 SRC
      "b\n")
-    ;; the three kinds of spec, each written once
-    (check-equal?
-     (for/list ([line (in-list (string-split
-                                (transpile "(import math (ref math sqrt pi) (as os.path path))\n")
-                                "\n"))]
-                #:when (or (string=? line "import math")
-                           (string=? line "from math import sqrt, pi")
-                           (string=? line "import os.path as path")))
-       line)
-     '("import math" "from math import sqrt, pi" "import os.path as path"))
-    ;; a macro can import what the code it writes needs
+    ;; what used to be (import (ref math sqrt))
     (check-python-output
      #<<SRC
-(defmacro (use mod name) (list 'import (list 'ref mod name)))
-(use math sqrt)
-(print (sqrt 9))
+(define sqrt (object-get-attr (import-module "math") "sqrt"))
+(print (sqrt 25))
 SRC
-     "3.0\n")
-    (check-python-output
-     "(print (eval (quote (begin (import (ref math sqrt)) (sqrt 25)))))"
      "5.0\n")
+    ;; the form is gone, and says where to go
+    (check-exn exn:fail? (lambda () (transpile "(import math)\n")))
     ;; a form the program builds at run time can import too
     (check-python-output
-     "(print (eval (quote (begin (import math) ((object-get-attr math \"ceil\") 1.2)))))"
+     "(print (eval (quote (begin (define m (import-module \"math\")) ((object-get-attr m \"ceil\") 1.2)))))"
      "2\n"))
 
   (test-case "Scheme names become readable Python names"
@@ -412,7 +392,8 @@ SRC
   (test-case "nothing to do"
     (check-python-source "" "# generated by rkt-pythonize\n")
     (check-python-source "(begin)\n" "# generated by rkt-pythonize\n")
-    (check-python-source "(trampoline)\n" "# generated by rkt-pythonize\n")
+    ;; a form with no body at all is a mistake, and says so
+    (check-exn exn:fail? (lambda () (transpile "(trampoline)\n")))
     (check-python-output "" ""))
 
   (test-case "malformed programs are rejected"

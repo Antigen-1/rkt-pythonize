@@ -30,7 +30,8 @@
 (require nanopass/base
          racket/list
          racket/match
-         "../core/base.rkt")
+         "../core/base.rkt"
+         "make-explicit.rkt")
 
 (provide LM
          parse-LM
@@ -48,11 +49,11 @@
 (define macro-signature? procedure-signature?)
 
 (define-language LM
-  (extends LB)
+  (extends LE)
   (terminals
-   (+ (macro-signature (s))))
+   (+ (macro-signature (sig))))
   (Expr (e body)
-        (+ (defmacro s e))))
+        (+ (defmacro sig e))))
 
 (define-parser parse-LM LM)
 
@@ -62,11 +63,11 @@
 
 (define registry-name '_macros)
 
-;; Expand the macros of an LM program, giving an LB program.
+;; Expand the macros of an LM program, giving an LE program.
 (define (expand-macros program)
   (define data (unparse-LM program))
   (define macros (macro-definitions data))
-  (parse-LB (expand-program data macros)))
+  (parse-LE (expand-program data macros)))
 
 ;; Every macro the program defines.  Macros live at the top level -- a `begin`
 ;; chain -- because the macro procedure has to be a global for the generated
@@ -117,12 +118,9 @@
        [(eq? op 'raise)
         (match e [(list 'raise value) (list 'raise (expand-form value macros #f))])]
        [(eq? op 'with-handler)
-        (match e
-          [(list 'with-handler handler body)
-           (list 'with-handler (expand-form handler macros #f) (expand-form body macros #f))])]
+        (cons 'with-handler (expand-forms (cdr e) macros #f))]
        [(eq? op 'trampoline) (cons 'trampoline (expand-forms (cdr e) macros #f))]
        [(eq? op 'if) (cons 'if (expand-forms (cdr e) macros #f))]
-       [(eq? op 'import) e]
        [(eq? op 'begin) (cons 'begin (expand-forms (cdr e) macros top?))]
        [else (cons (expand-form op macros #f) (expand-forms (cdr e) macros #f))])]
     [else e]))

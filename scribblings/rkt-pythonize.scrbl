@@ -32,7 +32,7 @@ runtime library.
 @item{Self-evaluating literals, and quoted data with interned symbols}
 @item{Free variables as Python globals, so the Python world stays reachable}
 @item{Macros: @racket[defmacro] over forms, in LM (see @seclink["Macros"])}
-@item{Python modules with @racket[import], and Python objects with
+@item{Python modules with @racket[import-module], and Python objects with
       @racket[object-ref] and friends (see @seclink["Macros"])}
 @item{Readable output: one Python function per LB procedure, no CPS conversion,
       and only the prelude pieces a program actually uses}
@@ -55,9 +55,9 @@ Each form is compiled to the Python that reads best for it:
 @item{@racket[(define (f x* ... . rest) e)] binds a procedure whose rest
       parameter collects the remaining arguments into a list:
       @tt{def f(x* ..., *rest):}}
-@item{@racket[(trampoline e ...)] calls the value of its body while that value
-      is a procedure, and answers the first value that is not one.  A tail call
-      of the body is what returns the procedure, so a loop written with
+@item{@racket[(trampoline e)] calls the value of its body while that value is a
+      procedure, and answers the first value that is not one.  A tail call of
+      the body is what returns the procedure, so a loop written with
       @racket[trampoline] does not grow the stack; it is never added for you}
 @item{@racket[(set! x e)] assigns, and becomes a Python @tt{nonlocal} when
       @racket[x] belongs to an enclosing procedure}
@@ -72,22 +72,25 @@ Each form is compiled to the Python that reads best for it:
       @racket[or] and @racket[not] are the Python operators, and keep Python's
       truth.)}
 @item{@racket[(e0 e* ...)] calls @racket[e0]}
-@item{@racket[define] and @racket[import] are statements: they are what a
-      function body, a @racket[begin] and the branch of a statement @racket[if]
-      are made of, and both answer @tt{None}.  Written in a value position the
-      statement is emitted before the expression that wanted the value, so put
-      them where a statement goes}
-@item{@racket[(import spec* ...)] imports Python modules: a top-level
-      @tt{import} in the generated program, wherever the source wrote it, once
-      per spec.  A name is a module, @racket[(as mod alias)] is a module under
-      another name, and @racket[(ref mod name* ...)] is @tt{from mod import
-      name, ...}}
+@item{@racket[define] and @racket[set!] are statements: they are what a function
+      body, a @racket[begin] in statement position and the branch of a statement
+      @racket[if] are made of.  An expression position takes expressions, so a
+      statement written in one is refused when the program is compiled}
+@item{A module is a value, and @racket[(import-module "name")] is how a program
+      gets one; what used to be @tt{import math as m} is a
+      @racket[define] and what used to be @tt{from math import sqrt} is an
+      @racket[object-get-attr]}
 
 @racketblock[
-(import math)                  ; import math
-(import (as os.path path))     ; import os.path as path
-(import (ref math sqrt pi))    ; from math import sqrt, pi
+(define math (import-module "math"))
+(define sqrt (object-get-attr math "sqrt"))
 ]
+
+@item{@bold{LE}, the language a source is written in (see
+      @filepath{passes/make-explicit.rkt}), gives @racket[with-handler] and
+      @racket[trampoline] any number of bodies, and the @racket[make-explicit]
+      pass wraps them in the @racket[begin] the core language has room for.
+      LM, @filepath{passes/macro.rkt}, is LE plus @racket[defmacro]}
 @item{@racket[(defmacro (f x* ...) e)], and @racket[(defmacro (f x* ... . rest) e)],
       define a macro -- see @seclink["Macros"]}
 @item{A quoted datum @racket['d] becomes a Python value: a symbol becomes an
@@ -155,11 +158,12 @@ A procedure whose bounces assign a local of an enclosing procedure gets a
 (define (make-counter)
   (begin
     (define n 0)
-    (define (tick) (trampoline (begin (set! n (+ n 1)) n)))
+    (define (bump) (begin (set! n (+ n 1)) n))
+    (define (tick) (trampoline (bump)))
     tick))
 ]
 
-@(verbatim (transpile "(define (make-counter)\n  (begin\n    (define n 0)\n    (define (tick) (trampoline (begin (set! n (+ n 1)) n)))\n    tick))\n"))
+@(verbatim (transpile "(define (make-counter)\n  (begin\n    (define n 0)\n    (define (bump) (begin (set! n (+ n 1)) n))\n    (define (tick) (trampoline (bump)))\n    tick))\n"))
 
 @racket[raise] carries any LB value and the handler is a procedure that receives
 it; @racket[with-handler] also catches Python exceptions, handing the exception
@@ -215,7 +219,7 @@ a macro call to @racket[(eval '<the call form>)]:
 @(verbatim
   (pretty-format
    #:mode 'write
-   (unparse-LB
+   (unparse-LE
     (expand-macros
      (parse-LM
       (with-input-from-string
@@ -243,6 +247,8 @@ work:
       keyword arguments called @racket[keywords].}
 @item{@racket[(gensym)] and @racket[(gensym prefix)] give a fresh symbol,
       interned like any other.}
+@item{@racket[(import-module "name")] is the module of that name, through
+      @tt{importlib.import_module}.}
 @item{@racket[(eval form)] compiles a form built at run time -- in the
       language of LB, through the same tables the transpiler uses -- and runs it
       in the program's globals.}
@@ -326,6 +332,14 @@ Things worth knowing:
 @section{Changelog}
 
 @itemlist[
+@item{1.3.1 -- statements and expressions are different things, in the grammar
+      and in the compiler: a statement in an expression position is refused
+      instead of being emitted somewhere it does not belong, so @racket[if] and
+      a call argument can no longer swallow a definition.  @racket[import] is
+      gone, a module being a value that @racket[import-module] hands over.
+      @racket[with-handler] and @racket[trampoline] take one body in the core
+      language and any number in LE, where @filepath{passes/make-explicit.rkt}
+      makes the extra ones explicit with a @racket[begin].}
 @item{1.2.1 -- @racket[trampoline] is the driver the manual describes: it calls
       the procedure its body returns, and keeps calling while the value is a
       procedure, so a body that ends in a tail call loops and anything else is
