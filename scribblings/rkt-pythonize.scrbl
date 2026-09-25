@@ -1,387 +1,173 @@
 #lang scribble/manual
 
-@require[@for-label[rkt-pythonize
-                    racket/base]
-         (only-in racket/pretty pretty-format)
-         (only-in racket/port with-input-from-string)
-         nanopass/base
-         rkt-pythonize]
+@require[@for-label[(except-in rkt-pythonize #%top #%module-begin)
+                    racket/base]]
 
 @title{rkt-pythonize}
 @author{zhanghao}
 
 @defmodule[rkt-pythonize]
 
-@bold{rkt-pythonize} transpiles Lisp to Python.  The source language is
-@bold{LB}, whose syntax is Racket's s-expression syntax: @racket[read] is the
-whole front end, so there is no lexer, reader, or macro expander to maintain.
-The output is a self-contained Python program -- it imports nothing and needs no
-runtime library.
+@bold{rkt-pythonize} is a Racket-hosted DSL that compiles to Python.  A module
+written in @hash-lang[] @racketid[rkt-pythonize] @emph{is} a Python program: the language
+expands the module body at compile time, compiles it to Python, and the module
+exports the result as @racket[python-code].  The executable only writes that
+string out.
 
 @table-of-contents[]
 
-@section{Supported Features}
+@section[#:tag "quick"]{Quick start}
 
-@itemlist[
-@item{@racket[define] of values and of procedures, at the top level and inside
-      bodies}
-@item{Explicit tail calls: @racket[trampoline]}
-@item{@racket[set!], including of a local of an enclosing procedure (Python
-      @tt{nonlocal})}
-@item{@racket[raise] and @racket[with-handler]}
-@item{Self-evaluating literals, and quoted data with interned symbols}
-@item{Free variables as Python globals, so the Python world stays reachable}
-@item{Macros: @racket[defmacro] over forms, in LM (see @seclink["Macros"])}
-@item{Python modules with @racket[import-module], and Python objects with
-      @racket[object-ref] and friends (see @seclink["Macros"])}
-@item{Readable output: one Python function per LB procedure, no CPS conversion,
-      and only the prelude pieces a program actually uses}
-]
-
-@section{Syntax}
-
-The grammar of LB, straight from @racket[define-language]:
-
-@codeblock[#:keep-lang-line? #f]{
-#:lang nanopass
-@(pretty-format #:mode 'write (language->s-expression LB))
-}
-
-Each form is compiled to the Python that reads best for it:
-
-@itemlist[
-@item{@racket[(define x e)] binds a value: @tt{x = e}}
-@item{@racket[(define (f x* ...) e)] binds a procedure: @tt{def f(x* ...): ...}}
-@item{@racket[(define (f x* ... . rest) e)] binds a procedure whose rest
-      parameter collects the remaining arguments into a list:
-      @tt{def f(x* ..., *rest):}}
-@item{@racket[(trampoline e)] calls the value of its body while that value is a
-      procedure, and answers the first value that is not one.  A tail call of
-      the body is what returns the procedure, so a loop written with
-      @racket[trampoline] does not grow the stack; it is never added for you}
-@item{@racket[(set! x e)] assigns, and becomes a Python @tt{nonlocal} when
-      @racket[x] belongs to an enclosing procedure}
-@item{@racket[(raise e)] raises @racket[e], which may be any LB value}
-@item{@racket[(with-handler h e)] runs @racket[e] with @racket[h] as the handler
-      of @racket[raise]; @racket[h] is called with the raised value}
-@item{@racket[(begin e ...)] is a sequence, or a Python expression when it
-      appears in a value position}
-@item{@racket[(if e1 e2 e3)] is a conditional.  LB's truth is Lisp's: only
-      @racket[#f] is false, so @racket[0], @racket[0.0], @racket[""],
-      @racket['()] and Python's @tt{None} are all true.  (@racket[and],
-      @racket[or] and @racket[not] are the Python operators, and keep Python's
-      truth.)}
-@item{@racket[(e0 e* ...)] calls @racket[e0]}
-@item{@racket[define] and @racket[set!] are statements: they are what a function
-      body, a @racket[begin] in statement position and the branch of a statement
-      @racket[if] are made of.  An expression position takes expressions, so a
-      statement written in one is refused when the program is compiled}
-@item{A module is a value, and @racket[(import-module "name")] is how a program
-      gets one; what used to be @tt{import math as m} is a
-      @racket[define] and what used to be @tt{from math import sqrt} is an
-      @racket[object-get-attr]}
-
-@racketblock[
-(define math (import-module "math"))
-(define sqrt (object-get-attr math "sqrt"))
-]
-
-@item{@bold{LE}, the language a source is written in (see
-      @filepath{passes/make-explicit.rkt}), gives a definition,
-      @racket[with-handler] and @racket[trampoline] any number of bodies, and the @racket[make-explicit]
-      pass wraps them in the @racket[begin] the core language has room for.
-      LM, @filepath{passes/macro.rkt}, is LE plus @racket[defmacro]}
-@item{@racket[(defmacro (f x* ...) e)], and @racket[(defmacro (f x* ... . rest) e)],
-      define a macro -- see @seclink["Macros"]}
-@item{A quoted datum @racket['d] becomes a Python value: a symbol becomes an
-      interned @tt{Symbol}, a list a Python list, a tuple a tuple, a hash table a
-      dict}
-]
-
-@section{Usage}
-
-From the command line, where @tt{prog.lb} becomes @tt{prog.py}:
-
-@commandline{raco rkt-pythonize [-o <output>] [<file>|-]}
-
-Options come before the input file.  With no file, or with @tt{-}, the LB
-program is read from stdin and the Python program goes to stdout, so the
-transpiler composes:
-
-@commandline{echo '(print (+ 1 2))' | raco rkt-pythonize}
-
-From Racket, @racket[transpile] is the whole pipeline -- read, check the program
-as LM, expand its macros into LB, and compile that to Python:
-
-@racketblock[
-(require rkt-pythonize)
-(transpile "(print (+ 1 2))")
-]
-
-@section{Examples}
-
-A procedure, a conditional, and a call:
-
-@racketblock[
+@codeblock|{
+#lang rkt-pythonize
 (define (fact n) (if (= n 0) 1 (* n (fact (- n 1)))))
 (print (fact 5))
-]
+}|
 
-@(verbatim (transpile "(define (fact n) (if (= n 0) 1 (* n (fact (- n 1)))))\n(print (fact 5))\n"))
+@codeblock|{
+$ raco rkt-pythonize fact.rkt
+$ python3 fact.py
+120
+}|
 
-A tail call becomes a procedure only where the source says
-@racket[trampoline]: the body returns a 0-arity procedure, the trampoline calls
-it, and it keeps calling while the value is one.  Such a procedure is emitted
-twice -- the public name drives the trampoline and a @tt{_body} name holds the
-bounces -- so a deep loop stays flat however the procedure is called:
+The Python is a value as well, so a Racket program can have it:
 
-@racketblock[
-(define (count n acc)
-  (trampoline (if (= n 0) acc (count (- n 1) (+ acc 1)))))
-(print (count 100000 0))
-]
+@verbatim|{
+> (require (file "fact.rkt"))
+> (display python-code)
+# generated by rkt-pythonize
+def fact(n):
+    return (1 if (n == 0) is not False else (n * fact((n - 1))))
 
-@(verbatim (transpile "(define (count n acc)\n  (trampoline (if (= n 0) acc (count (- n 1) (+ acc 1)))))\n(print (count 100000 0))\n"))
+print(fact(5))
+}|
 
-An argument is not a tail position, so @racket[count] is a plain call there:
+@defthing[python-code string?]{The Python source of the module, as a string.  Every
+@hash-lang[] @racketid[rkt-pythonize] module exports it.}
 
-@racketblock[
-(define (add-one n) (+ 1 (count n 0)))
-]
+@section{The language}
 
-@(verbatim (transpile "(define (count n acc)\n  (trampoline (if (= n 0) acc (count (- n 1) (+ acc 1)))))\n(define (add-one n) (+ 1 (count n 0)))\n"))
+@itemlist[
+@item{@racket[racket/base] is re-exported as it is, so @racket[define],
+@racket[lambda], @racket[if], @racket[begin], @racket[set!], @racket[quote] and
+@racket[define-syntax] are Racket's.  A macro written with
+@racket[define-syntax-rule] is an ordinary Racket macro, it runs at compile
+time, and hygiene is Racket's.}
+@item{What this language adds has an @racket[lb:] prefix:
+@racket[lb:raise], @racket[lb:trampoline] and @racket[lb:with-handler].}
+@item{Only @racket[#f] is false.  An @racket[if] compiles to
+@racket[(then if test is not False else else)], so @racket[0], @racket[""] and
+@racket[(quote ())] are true, as they are in Racket.}
+@item{A free identifier is a Python global: @racket[(print (len "abc"))]
+becomes @racket[print(len("abc"))].  Names are munged into readable Python
+identifiers -- @racket[even?] is @racket[even_p], @racket[set-car!] is
+@racket[set_car_b], @racket[object-ref] is @racket[object_ref] -- and a name
+that is a Python keyword gets a trailing @racketid[_].}
+@item{@racket[+], @racket[-], @racket[*], @racket[/], @racket[quotient],
+@racket[modulo], @racket[expt], @racket[=], @racket[<], @racket[>],
+@racket[<=], @racket[>=], @racket[equal?] and @racket[eq?] become Python's own
+operators, and @racket[not] becomes Python's @racket[not].}
+@item{@racket[quote] is data: integers, floats, strings, booleans, lists (which
+are Python lists) and dicts whose keys are strings.  There is no symbol type, so
+quoting a symbol is a compile error, and there is no @racket[eval] and no
+@racket[gensym].}
+@item{@racket[require] and @racket[provide] compile to nothing: they are about
+the Racket module, not about the Python program.  A required library's
+@emph{macros} work when their expansion is compilable; its procedures are Racket
+procedures and are not available to the Python program.}]
 
-A procedure whose bounces assign a local of an enclosing procedure gets a
-@tt{nonlocal} declaration, worked out from the source:
+@section{Statements and expressions}
 
-@racketblock[
-(define (make-counter)
-  (begin
-    (define n 0)
-    (define (bump) (begin (set! n (+ n 1)) n))
-    (define (tick) (trampoline (bump)))
-    tick))
-]
+An @racket[if] or a @racket[begin] in statement position becomes a Python
+statement, so its branches can hold @racket[set!] and other statements; the same
+forms in an expression position become a Python conditional expression and a
+call to @racket[_begin].  That is what makes Racket's own control forms work:
 
-@(verbatim (transpile "(define (make-counter)\n  (begin\n    (define n 0)\n    (define (bump) (begin (set! n (+ n 1)) n))\n    (define (tick) (trampoline (bump)))\n    tick))\n"))
+@codeblock|{
+#lang rkt-pythonize
+(define x 0)
+(when #t (set! x 5))
+(unless #f (set! x (+ x 1)))
+(if (> x 5) (set! x (* x 2)) (set! x 0))
+(print (cond [(= x 12) "twelve"] [else "other"]))
+(print (and #t x))
+}|
 
-@racket[raise] carries any LB value and the handler is a procedure that receives
-it; @racket[with-handler] also catches Python exceptions, handing the exception
-object to the handler:
+Not compilable: @racket[let], @racket[let*], @racket[or] and @racket[case] (they
+expand to @racket[lambda]s or to @racket[let-values] with bindings), a
+@racket[lambda] that is not a definition's value, @racket[set!] of an unbound
+name, and Racket library procedures such as @racket[third] (they would be Python
+globals and fail as @racket[NameError]s unless the Python program defines them).
 
-@racketblock[
-(define (boom) (raise 41))
+@section{The @racket[lb:] forms}
+
+@defform[(lb:raise e)]{Raise @racket[e].  The value travels as a Python
+exception.}
+
+@defform[(lb:with-handler h e)]{Run @racket[e] with @racket[h] as the handler of
+what it raises.  The body runs where it stands, so a value position guards it:
+
+@codeblock|{
 (define (recover e) (+ e 1))
-(print (with-handler recover (boom)))
-]
+(print (lb:with-handler recover (lb:raise 41)))          ; 42
+(print (if #f (lb:with-handler recover (lb:raise 1)) 7)) ; 7
+}|}
 
-@(verbatim (transpile "(define (boom) (raise 41))\n(define (recover e) (+ e 1))\n(print (with-handler recover (boom)))\n"))
+@defform[(lb:trampoline e)]{Call what @racket[e] returns while it is a
+procedure, so a body that ends in a tail call loops flat and a body that returns
+anything else is done:
 
-A free variable is a Python global, so a program can reach the Python world
-without any declaration:
+@codeblock|{
+(define (count n acc)
+  (lb:trampoline (if (= n 0) acc (count (- n 1) (+ acc 1)))))
+(print (count 100000 0))                                 ; 100000
+}|
 
-@(verbatim (transpile "(print (len \"abc\"))\n"))
+A procedure that drives @racket[lb:trampoline] is emitted twice: @racket[f]
+drives and @racket[f_body] holds the bounces, so a bounce never re-enters a
+driver.}
 
-@section{Macros}
+@section{Runtime pieces}
 
-@bold{LM} is LB plus @racket[defmacro], and @filepath{passes/macro.rkt} is the
-pass that expands it back into LB.  A macro is an ordinary procedure: its
-parameters are bound to the @italic{unevaluated} argument forms, and it returns
-the form to evaluate in its place.  A form is data -- a symbol is an interned
-@tt{Symbol} and a list is a Python list -- so a macro body destructures and
-builds forms with the Python operations it already has:
+The generated program carries only the pieces it uses, each named after the form
+or the procedure that asked for it.
 
-@racketblock[
-(defmacro (unless c . body) (list 'if c #f (+ '(begin) body)))
-]
+@(tabular
+  (list (list @bold{source} @bold{Python})
+        (list @racket[(lb:raise e)] @elem{@racket[_raise] and @racket[_Raised]})
+        (list @racket[(lb:trampoline e)] @racket[_trampoline])
+        (list @racket[(lb:with-handler h e)] @racket[_with_handler])
+        (list @racket[begin] @elem{in an expression: @racket[_begin]})
+        (list @racket[(list 1 2)] @racket[list])
+        (list @racket[(apply f xs)] @racket[apply])
+        (list @racket[(keyword-apply f kw xs)] @racket[keyword_apply])
+        (list @racket[(object-ref xs 0)] @racket[object_ref])
+        (list @racket[(object-set! xs 0 1)] @racket[object_set_b])
+        (list @racket[(object-get-attr xs "append")] @racket[object_get_attr])
+        (list @racket[(object-set-attr! xs "a" 1)] @racket[object_set_attr_b])
+        (list @racket[(object-has-attr? xs "append")] @racket[object_has_attr_p])
+        (list @racket[(void)] @racket[None])))
 
-A macro signature is a procedure signature, so @racket[defmacro] and
-@racket[define] take the same two shapes.  A dotted parameter collects the
-remaining forms into a list, so @racket[unless] above can take any number of
-body forms, and the macro procedure it becomes has the same parameter list.  This one introduces a binding, and
-asks @racket[gensym] for a name nothing else can capture:
+@section{Command line}
 
-@racketblock[
-(defmacro (swap! a b)
-  (begin
-    (define tmp (gensym "tmp"))
-    (list 'begin (list 'define tmp a) (list 'set! a b) (list 'set! b tmp))))
-]
+@codeblock|{
+$ raco rkt-pythonize [-o <output>] <module.rkt>
+}|
 
-The pass lowers a macro definition to the @racket[define] of that procedure, and
-a macro call to @racket[(eval '<the call form>)]:
+@racket[<module.rkt>] becomes @filepath{<module>.py}.  With @racket[-o -] the
+Python goes to standard output, and with @racket[-o <output>] to that file.
+Before the package is installed, the same entry point runs as
+@codeblock|{
+$ racket cli.rkt [-o <output>] <module.rkt>
+}|
 
-@racketblock[
-(defmacro (unless c . body) (list 'if c #f (+ '(begin) body)))
-(unless #f (print 1))
-]
+@section{Tests}
 
-@(verbatim
-  (pretty-format
-   #:mode 'write
-   (unparse-LE
-    (expand-macros
-     (parse-LM
-      (with-input-from-string
-       "(begin (defmacro (unless c . body) (list 'if c #f (+ '(begin) body))) (unless #f (print 1)))"
-       read))))))
+@codeblock|{
+$ TMPDIR="$PWD/.tmp" raco test tests/
+}|
 
-So the expansion happens in the generated program, not in the transpiler: the
-program carries the macro procedure, the table of macro names and arities that
-tells its @racket[eval] what to expand, and the compiler that @racket[eval]
-runs.  That keeps the transpiler small and the generated program self-contained.
-A macro call can appear in a value position, can expand into a @racket[define],
-and can expand into a call of another macro.
-
-@subsection{Runtime functions}
-
-The prelude writes these Python-side functions for a program that mentions
-them, and they are there for any program.  The first five are what makes macros
-work:
-
-@itemlist[
-@item{@racket[(list x* ...)] makes a list -- the same thing a quoted list is.}
-@item{@racket[(apply f a* ... args)] calls @racket[f], spreading the last
-      argument over the end of the argument list.}
-@item{@racket[(keyword-apply f keywords args)] calls @racket[f] with a dict of
-      keyword arguments called @racket[keywords].}
-@item{@racket[(gensym)] and @racket[(gensym prefix)] give a fresh symbol,
-      interned like any other.}
-@item{@racket[(import-module "name")] is the module of that name, through
-      @tt{importlib.import_module}.}
-@item{@racket[(eval form)] compiles a form built at run time -- in the
-      language of LB, through the same tables the transpiler uses -- and runs it
-      in the program's globals.}
-]
-
-The rest reach into Python objects without spelling out reflection:
-@racket[(object-ref o k)] is @tt{o[k]}, @racket[(object-set! o k v)] is
-@tt{o[k] = v}, @racket[(object-get-attr o name)] is @tt{getattr(o, name)} --
-methods included, so @racket[((object-get-attr "abc" "upper"))] is
-@tt{"abc".upper()} -- @racket[(object-set-attr! o name v)] is
-@tt{setattr(o, name, v)}, and @racket[(object-has-attr? o name)] is
-@tt{hasattr(o, name)}.
-
-Things worth knowing:
-@itemlist[
-@item{There is no automatic hygiene: a macro that introduces a binding uses
-      @racket[gensym] for its name, and a name it does not make fresh can be
-      captured.}
-@item{@racket[defmacro] belongs at the top level, because the generated program
-      finds the macro procedure by name.}
-@item{@racket[eval] evaluates in the program's globals, so a @racket[define]
-      inside a form it runs defines a global.}
-@item{The runtime function names belong to the runtime: a program that defines
-      its own @racket[list], @racket[apply], @racket[keyword-apply],
-      @racket[gensym] or @racket[eval] replaces it.}
-]
-
-@section{Functions}
-
-@defthing[#:kind "language" LB any/c]{
- The LB language: the forms above and the @racket[parse-LB] parser for them.
-}
-
-@defproc[(parse-LB [datum any/c]) any]{
- Parse one datum as an LB program.  A source file with several top-level forms
- is the single program @racket[(begin form ...)].
-}
-
-@defproc[(unparse-LB [program any]) any/c]{
- The inverse of @racket[parse-LB]: an LB program as a Racket datum.
-}
-
-@defproc[(compile-LB [program any]) string?]{
- Compile a parsed LB program to Python source text.
-}
-
-@defproc[(transpile [source string?]) string?]{
- Read, check as LM, expand macros, and compile to Python.  This is the whole
- transpiler.
-}
-
-@defproc[(expand-macros [program any]) any]{
- Expand the macros of an LM program, giving an LB program.
-}
-
-@defproc[(make-explicit [program any]) any]{
- Make the bodies of @racket[with-handler] and @racket[trampoline] explicit,
- giving an LB program from an LE one.
-}
-
-@defthing[#:kind "language" LE any/c]{
- LE: LB with any number of bodies in @racket[with-handler] and
- @racket[trampoline].
-}
-
-@defproc[(parse-LE [datum any/c]) any]{
- Parse one datum as an LE program.
-}
-
-@defproc[(unparse-LE [program any]) any/c]{
- The inverse of @racket[parse-LE]: an LE program as a Racket datum.
-}
-
-@defproc[(parse-LM [datum any/c]) any]{
- Parse one datum as an LM program: LB plus @racket[defmacro].
-}
-
-@defproc[(unparse-LM [program any]) any/c]{
- The inverse of @racket[parse-LM]: an LM program as a Racket datum.
-}
-
-@defproc[(macro-signature? [v any/c]) boolean?]{
- Is @racket[v] the signature of a macro, @racket[(name param ...)] or
- @racket[(name param ... . rest)]?
-}
-
-@defproc[(python-name [sym symbol?]) string?]{
- The Python identifier an LB name compiles to: @racket[even?] becomes
- @tt{even_p}, @racket[set-car!] becomes @tt{set_car_b}, and a Python keyword gets
- a trailing underscore.
-}
-
-@defproc[(run-cli [args (listof string?)]) exact-integer?]{
- Run the command line described under @seclink["Usage"], and return the exit
- code.  The @tt{main} submodule of @tt{main.rkt} calls this with the command
- line arguments, which is what @tt{raco rkt-pythonize} runs.
-}
-
-@section{Changelog}
-
-@itemlist[
-@item{1.3.2 -- a definition may have several bodies, like @racket[with-handler]
-      and @racket[trampoline], and LE's pass makes them a @racket[begin].  A
-      statement written where an expression belongs is refused by a pass of its
-      own, @filepath{passes/check-expression.rkt}, which reports what was
-      written instead of leaving it to the compiler.}
-@item{1.3.1 -- statements and expressions are different things, in the grammar
-      and in the compiler: a statement in an expression position is refused
-      instead of being emitted somewhere it does not belong, so @racket[if] and
-      a call argument can no longer swallow a definition.  @racket[import] is
-      gone, a module being a value that @racket[import-module] hands over.
-      @racket[with-handler] and @racket[trampoline] take one body in the core
-      language and any number in LE, where @filepath{passes/make-explicit.rkt}
-      makes the extra ones explicit with a @racket[begin].}
-@item{1.2.1 -- @racket[trampoline] is the driver the manual describes: it calls
-      the procedure its body returns, and keeps calling while the value is a
-      procedure, so a body that ends in a tail call loops and anything else is
-      the answer.  A bounce is a plain 0-arity procedure now, not a value of the
-      runtime's own.}
-@item{1.2.0 -- @racket[if] is Lisp's truth: only @racket[#f] is false, so
-      @racket[0], @racket[0.0], @racket[""] and @racket['()] are true; and
-      @racket[(import spec* ...)] takes @racket[(as mod alias)] and
-      @racket[(ref mod name* ...)] as well as a plain module name.}
-@item{1.1.0 -- @racket[(import x* ...)] for Python modules, and
-      @racket[object-ref], @racket[object-set!], @racket[object-get-attr],
-      @racket[object-set-attr!] and @racket[object-has-attr?] for Python
-      objects, so reaching into one no longer means spelling out @tt{getattr}
-      and a dunder name.}
-@item{1.0.0 -- a Lisp: definitions, with a rest parameter; @racket[defmacro] and
-      quoted data to build forms with; @racket[trampoline], @racket[set!],
-      @racket[raise] and @racket[with-handler]; interned symbols; free variables
-      as Python globals; and the Python-side @racket[list], @racket[apply],
-      @racket[keyword-apply], @racket[gensym] and @racket[eval].}
-@item{0.0.1 -- the rewrite: LB, defined with @seclink["Syntax"]{nanopass}, and a
-      Python backend; a command line entry point.}
-]
+The end-to-end tests compile a @hash-lang[] @racketid[rkt-pythonize] module in a
+subprocess and run the generated program with @exec{python3}.  The subprocess
+gets a @envvar{PLTCOLLECTS} that points at the checkout, so the checkout wins
+over an installed copy of the package.
