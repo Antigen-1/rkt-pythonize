@@ -1,83 +1,19 @@
 #lang racket/base
 
-;; rkt-pythonize: a Lisp-to-Python transpiler.
+;; raco rkt-pythonize [-o <output>] <module>
 ;;
-;;   raco rkt-pythonize [<file>|-] [-o <output>]
-;;
-;; With no <file>, or with `-', the LB program is read from stdin and the Python
-;; program goes to stdout.  With a <file> the Python program is written next to
-;; it with a `.py' extension, unless `-o' says otherwise.
-;;
-;; The module doubles as the package's main module: `racket main.rkt', the
-;; `rkt-pythonize' launcher, and `raco rkt-pythonize' (see `raco-commands' in
-;; info.rkt) all run the `main' submodule below.
+;; A module in #lang rkt-pythonize compiles itself, so this only asks it for its
+;; python-code and writes it out.
 
 (require racket/cmdline
          racket/file
          racket/path
-         racket/port
-         "core/base.rkt"
-         "core/python.rkt"
-         "passes/macro.rkt"
-         "passes/make-explicit.rkt"
-         "passes/check-expression.rkt")
+         racket/port)
 
-(provide run-cli
-         ;; the LB language
-         LB
-         parse-LB
-         unparse-LB
-         variable?
-         literal?
-         datum?
-         ;; the surface language: LM -> LE -> LB
-         LM
-         parse-LM
-         unparse-LM
-         macro-signature?
-         expand-macros
-         LE
-         parse-LE
-         unparse-LE
-         make-explicit
-         check-expressions
-         ;; LB -> Python
-         compile-LB
-         python-name
-         transpile)
-
-;; LB source text -> Python source text.  Reading is Racket's own `read`, so
-;; there is no lexer to maintain; a source file with several top-level forms
-;; becomes one `(begin form ...)`, and an empty file an empty `(begin)`.
-;;
-;; The pipeline is: read, check as LM, expand macros into LE, make the bodies of
-;; `with-handler` and `trampoline` explicit, and compile the LB that is left.
-(define (transpile source)
-  (define forms (read-forms source))
-  (define program
-    (cond [(null? forms) '(begin)]
-          [(null? (cdr forms)) (car forms)]
-          [else (cons 'begin forms)]))
-  (compile-LB (check-expressions (make-explicit (expand-macros (parse-LM program))))))
-
-(define (read-forms source)
-  (define in (open-input-string source))
-  (let loop ([forms '()])
-    (define form (read in))
-    (if (eof-object? form) (reverse forms) (loop (cons form forms)))))
+(provide run-cli)
 
 (define program-name "rkt-pythonize")
 
-(define usage-text
-  (string-append
-   "usage: raco " program-name " [-o <output>] [<file>|-]\n"
-   "\n"
-   "Transpile an LB program to Python.  With no <file>, or with `-', the LB\n"
-   "program is read from stdin.  The Python program is written next to <file>\n"
-   "with a `.py' extension, or to <output> when that is given (`-' for stdout).\n"
-   "Options come before the input file.\n"))
-
-;; Run the command line `args' and return the exit code.
 (define (run-cli args)
   (define output #f)
   (define given '())
@@ -87,30 +23,22 @@
    #:once-each
    [("-o" "--output") path "write the Python program to <output> (`-' for stdout)"
                        (set! output path)]
-   #:args files
-   (set! given files))
+   #:args files (set! given files))
   (cond
+    [(null? given)
+     (eprintf "~a: give me a module in #lang rkt-pythonize~n" program-name) 1]
     [(> (length given) 1)
-     (eprintf "~a: expected at most one input file, got ~a~n" program-name (length given))
-     (when (ormap (lambda (arg) (regexp-match? #rx"^-" arg)) given)
-       (eprintf "~a: options come before the input file~n" program-name))
-     (eprintf "~a" usage-text)
-     1]
+     (eprintf "~a: one module at a time~n" program-name) 1]
     [else
-     (define input (if (null? given) "-" (car given)))
+     (define file (car given))
      (define target
        (cond [output output]
-             [(string=? input "-") "-"]
-             [else (path->string (path-replace-extension (string->path input) #".py"))]))
+             [else (path->string (path-replace-extension (string->path file) #".py"))]))
      (with-handlers ([exn:fail?
-                      (lambda (e)
-                        (eprintf "~a: ~a~n" program-name (exn-message e))
-                        1)])
-       (define source
-         (if (string=? input "-")
-             (port->string (current-input-port))
-             (file->string input)))
-       (define python (transpile source))
+                      (lambda (e) (eprintf "~a: ~a~n" program-name (exn-message e)) 1)])
+       (define python
+         (dynamic-require `(file ,(path->string (path->complete-path (string->path file))))
+                          'python-code))
        (if (string=? target "-")
            (display python)
            (display-to-file python (string->path target) #:exists 'replace))

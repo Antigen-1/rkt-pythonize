@@ -63,22 +63,25 @@
 (define (expr stx)
   (cond
     [(identifier? stx) (munged (syntax-e stx))]
-    [(not (syntax->list stx)) (py-datum (syntax-e stx))]
+    [(not (syntax->list stx)) (py-datum (syntax->datum stx))]
     [else
      (define parts (syntax->list stx))
      (case (head stx)
-       [(quote) (py-datum (syntax-e (cadr parts)))]
+       [(quote) (py-datum (syntax->datum (cadr parts)))]
        [(#%lb-global) (munged (syntax-e (cadr (syntax->list (cadr parts)))))]
        [(if) (format "(~a if ~a else ~a)" (expr (caddr parts))
                      (expr (cadr parts)) (expr (cadddr parts)))]
        [(begin) (format "_begin(~a)" (string-join (map expr (cdr parts)) ", "))]
        [(lambda) (error 'compile "a lambda has to be a definition's value")]
-       [(#%lb-raise) (need "raise") (format "_raise(~a)" (expr (cadr parts)))]
+       [(#%lb-raise) (need 'raise) (format "_raise(~a)" (expr (cadr parts)))]
        [(#%app)
         (define f (cadr parts))
         (define args (cddr parts))
         (define op (and (identifier? f) (hash-ref infix (syntax-e f) #f)))
-        (cond [(and op (>= (length args) 2))
+        (define core (and (identifier? f) (syntax-e f)))
+        (cond [(eq? core '#%lb-global) (munged (syntax-e (cadr (syntax->list (car args)))))]
+              [(eq? core '#%lb-raise) (need 'raise) (format "_raise(~a)" (expr (car args)))]
+              [(and op (>= (length args) 2))
                (format "(~a)" (string-join (map expr args) (format " ~a " op)))]
               [else (format "~a(~a)" (expr f) (string-join (map expr args) ", "))])]
        [else (error 'compile "cannot compile: ~a" (syntax->datum stx))])]))
@@ -86,6 +89,8 @@
 (define (statement s)
   (define parts (and (syntax->list s) (syntax->list s)))
   (case (head s)
+    ;; a macro definition is compile-time only: the expander has done its work
+    [(define-syntaxes define-syntax begin-for-syntax) ""]
     [(define-values)
      (define name (syntax-e (car (syntax->list (cadr parts)))))
      (define rhs (caddr parts))
@@ -112,7 +117,7 @@
 
 (define (compile-body body)
   (hash-clear! needed)
-  (define lines (map statement body))
+  (define lines (filter (lambda (line) (not (string=? line ""))) (map statement body)))
   (define prelude
     (append* (for/list ([p (in-list '(begin raise))] #:when (hash-ref needed p #f))
                (append (hash-ref pieces p) (list "")))))
