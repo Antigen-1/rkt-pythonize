@@ -304,6 +304,24 @@ Things worth knowing:
  Expand the macros of an LM program, giving an LB program.
 }
 
+@defproc[(make-explicit [program any]) any]{
+ Make the bodies of @racket[with-handler] and @racket[trampoline] explicit,
+ giving an LB program from an LE one.
+}
+
+@defthing[#:kind "language" LE any/c]{
+ LE: LB with any number of bodies in @racket[with-handler] and
+ @racket[trampoline].
+}
+
+@defproc[(parse-LE [datum any/c]) any]{
+ Parse one datum as an LE program.
+}
+
+@defproc[(unparse-LE [program any]) any/c]{
+ The inverse of @racket[parse-LE]: an LE program as a Racket datum.
+}
+
 @defproc[(parse-LM [datum any/c]) any]{
  Parse one datum as an LM program: LB plus @racket[defmacro].
 }
