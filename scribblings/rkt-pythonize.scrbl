@@ -64,11 +64,23 @@ Each form is compiled to the Python that reads best for it:
       of @racket[raise]; @racket[h] is called with the raised value}
 @item{@racket[(begin e ...)] is a sequence, or a Python expression when it
       appears in a value position}
-@item{@racket[(if e1 e2 e3)] is a conditional}
+@item{@racket[(if e1 e2 e3)] is a conditional.  LB's truth is Lisp's: only
+      @racket[#f] is false, so @racket[0], @racket[0.0], @racket[""],
+      @racket['()] and Python's @tt{None} are all true.  (@racket[and],
+      @racket[or] and @racket[not] are the Python operators, and keep Python's
+      truth.)}
 @item{@racket[(e0 e* ...)] calls @racket[e0]}
-@item{@racket[(import x* ...)] imports Python modules: each name becomes a
-      top-level @tt{import} in the generated program, wherever the source wrote
-      it}
+@item{@racket[(import spec* ...)] imports Python modules: a top-level
+      @tt{import} in the generated program, wherever the source wrote it, once
+      per spec.  A name is a module, @racket[(as mod alias)] is a module under
+      another name, and @racket[(ref mod name* ...)] is @tt{from mod import
+      name, ...}}
+
+@racketblock[
+(import math)                  ; import math
+(import (as os.path path))     ; import os.path as path
+(import (ref math sqrt pi))    ; from math import sqrt, pi
+]
 @item{@racket[(defmacro (f x* ...) e)], and @racket[(defmacro (f x* ... . rest) e)],
       define a macro -- see @seclink["Macros"]}
 @item{A quoted datum @racket['d] becomes a Python value: a symbol becomes an
@@ -306,6 +318,10 @@ Things worth knowing:
 @section{Changelog}
 
 @itemlist[
+@item{1.2.0 -- @racket[if] is Lisp's truth: only @racket[#f] is false, so
+      @racket[0], @racket[0.0], @racket[""] and @racket['()] are true; and
+      @racket[(import spec* ...)] takes @racket[(as mod alias)] and
+      @racket[(ref mod name* ...)] as well as a plain module name.}
 @item{1.1.0 -- @racket[(import x* ...)] for Python modules, and
       @racket[object-ref], @racket[object-set!], @racket[object-get-attr],
       @racket[object-set-attr!] and @racket[object-has-attr?] for Python

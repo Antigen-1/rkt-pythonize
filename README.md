@@ -20,7 +20,7 @@ e ::= x                        variable
     | (with-handler e1 e2)     run e2 with e1 as the handler of `raise`
     | (begin e ...)            sequence
     | (if e1 e2 e3)            conditional
-    | (import x* ...)          import Python modules
+    | (import spec* ...)       import Python modules
     | (e0 e* ...)              application
 
 d ::= int | float | string | boolean | symbol | list | tuple | dict
@@ -126,8 +126,16 @@ reflection:
 (object-has-attr? xs "append")                  ; hasattr(xs, "append")
 ```
 
-`(import x* ...)` becomes a top-level `import` in the generated program,
-wherever the source writes it, once per module.
+`(import spec* ...)` becomes top-level `import` statements in the generated
+program, wherever the source writes it, once per line: a name is a module,
+`(as mod alias)` is a module under another name, and `(ref mod name* ...)` is
+`from mod import name, ...`.
+
+```racket
+(import math)                  ; import math
+(import (as os.path path))     ; import os.path as path
+(import (ref math sqrt pi))    ; from math import sqrt, pi
+```
 
 Design notes:
 
@@ -141,6 +149,9 @@ Design notes:
   Python identifiers (`even?` becomes `even_p`, `set-car!` becomes `set_car_b`).
   The few names that read better as operators -- `+ - * / quotient modulo expt
   < > <= >= = equal? eq? and or not` -- are emitted as Python operators.
+* `if` uses LB's truth, which is Lisp's: only `#f` is false, so `0`, `0.0`,
+  `""`, `'()` and Python's `None` are all true.  (`and`, `or` and `not` are the
+  Python operators, and keep Python's truth.)
 * `raise` builds an `_Raised` exception and `with-handler` catches `_Raised`
   (handing the raised value to the handler) as well as any other Python
   exception (handing the exception object to it).

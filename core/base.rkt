@@ -51,6 +51,7 @@
          datum?
          procedure-signature?
          binding?
+         import-spec?
          binding-name
          binding-parts)
 
@@ -60,7 +61,8 @@
    (variable (x))
    (literal (l))
    (datum (d))
-   (binding (b)))
+   (binding (b))
+   (import-spec (spec)))
   (Expr (e body)
         x
         l
@@ -79,7 +81,7 @@
         (if e1 e2 e3)
         ;; like every keyword form, `import` has to be listed before the
         ;; application production, whose shape it shares
-        (import x* ...)
+        (import spec* ...)
         (e0 e* ...)))
 
 ;; A variable is just a symbol: anything that is not a literal or a form is a
@@ -106,6 +108,21 @@
          (cond [(null? params) #t]
                [(pair? params) (and (variable? (car params)) (loop (cdr params)))]
                [else (variable? params)]))))
+
+;; What an `import` imports: a module, a module under another name, or names a
+;; module exports.
+;;
+;;   os                    -> import os
+;;   (as os.path path)     -> import os.path as path
+;;   (ref math sqrt pi)    -> from math import sqrt, pi
+(define (import-spec? v)
+  (or (variable? v)
+      (and (list? v)
+           (pair? v)
+           (case (car v)
+             [(as) (and (= 3 (length v)) (variable? (cadr v)) (variable? (caddr v)))]
+             [(ref) (and (>= (length v) 3) (andmap variable? (cdr v)))]
+             [else #f]))))
 
 ;; What a `define` binds: a variable, or a procedure signature.
 (define (binding? v)

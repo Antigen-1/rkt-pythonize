@@ -297,6 +297,22 @@
      "            return \"float('-inf')\""
      "    return repr(value)"
      ""
+     "def _eval_condition(form):"
+     "    \"\"\"LB's truth: only False is false.\"\"\""
+     "    if isinstance(form, Symbol) or isinstance(form, _builtin_list):"
+     "        return \"(%s is not False)\" % _eval_value(form)"
+     "    return \"False\" if form is False else \"True\""
+     ""
+     "def _eval_import_line(spec):"
+     "    \"\"\"The import statement an import spec asks for.\"\"\""
+     "    if isinstance(spec, Symbol):"
+     "        return \"import %s\" % spec"
+     "    if spec and spec[0] == Symbol(\"as\"):"
+     "        return \"import %s as %s\" % (spec[1], _eval_name(spec[2]))"
+     "    if spec and spec[0] == Symbol(\"ref\"):"
+     "        return \"from %s import %s\" % (spec[1], \", \".join(str(name) for name in spec[2:]))"
+     "    raise SyntaxError(\"eval: not an import spec: %r\" % (spec,))"
+     ""
      "def _eval_value(form):"
      "    \"\"\"Python source for `form` where its value is wanted.\"\"\""
      "    if isinstance(form, Symbol):"
@@ -310,7 +326,7 @@
      "        if len(form) == 2 and head == Symbol(\"quote\"):"
      "            return _eval_literal(form[1])"
      "        if len(form) == 4 and head == Symbol(\"if\"):"
-     "            return \"(%s if %s else %s)\" % (_eval_value(form[2]), _eval_value(form[1]),"
+     "            return \"(%s if %s else %s)\" % (_eval_value(form[2]), _eval_condition(form[1]),"
      "                                            _eval_value(form[3]))"
      "        if len(form) >= 2 and head == Symbol(\"begin\"):"
      "            return \"_begin(%s)\" % \", \".join(_eval_value(item) for item in form[1:])"
@@ -373,7 +389,7 @@
      "            _eval_statements(parts[-1], lines, target, indent)"
      "            return"
      "        if head == Symbol(\"if\") and len(form) == 4:"
-     "            lines.append(\"%sif %s:\" % (pad, _eval_value(form[1])))"
+     "            lines.append(\"%sif %s:\" % (pad, _eval_condition(form[1])))"
      "            _eval_statements(form[2], lines, target, indent + 1)"
      "            lines.append(\"%selse:\" % pad)"
      "            _eval_statements(form[3], lines, target, indent + 1)"
@@ -383,8 +399,8 @@
      "            lines.append(\"%s%s = None\" % (pad, target))"
      "            return"
      "        if head == Symbol(\"import\"):"
-     "            if len(form) > 1:"
-     "                lines.append(pad + \"import \" + \", \".join(str(item) for item in form[1:]))"
+     "            for spec in form[1:]:"
+     "                lines.append(pad + _eval_import_line(spec))"
      "            lines.append(\"%s%s = None\" % (pad, target))"
      "            return"
      "    lines.append(\"%s%s = %s\" % (pad, target, _eval_value(form)))"
@@ -432,7 +448,7 @@
 ;; temps:    counter for temporaries
 ;; scopes:   innermost first; each scope is a mutable list of the names it
 ;;           introduces.  A function scope carries its name, the module scope #f.
-;; imports:  the module names the program imports, in order, first one first
+;; imports:  the import lines of the program, in order, first one first
 ;; trampolines: the procedures of the program whose body uses `trampoline`
 ;; driving?: #f while emitting such a body: the enclosing driver forces the
 ;;           bounces, so the body itself must not start one
@@ -449,11 +465,25 @@
 (define (emit! ctx text)
   (set-context-lines! ctx (cons (cons (context-indent ctx) text) (context-lines ctx))))
 
+;; The Python line an import spec becomes.  A module name is written as it is --
+;; it is a module path, not a Python name -- a name a module exports is written
+;; as the module has it, and an alias is a name the program binds, so it is
+;; munged like any other.
+(define (import-line spec)
+  (cond [(symbol? spec) (format "import ~a" spec)]
+        [(eq? (car spec) 'as)
+         (format "import ~a as ~a" (cadr spec) (python-name (caddr spec)))]
+        [else
+         (format "from ~a import ~a"
+                 (cadr spec)
+                 (string-join (map (lambda (name) (format "~a" name)) (cddr spec))
+                              ", "))]))
+
 ;; An `import` is an import statement, so it belongs at the top of the program
-;; whatever position the source wrote it in.
-(define (emit-import! ctx name)
-  (unless (member name (context-imports ctx))
-    (set-context-imports! ctx (append (context-imports ctx) (list name)))))
+;; whatever position the source wrote it in, and only once.
+(define (emit-import! ctx line)
+  (unless (member line (context-imports ctx))
+    (set-context-imports! ctx (append (context-imports ctx) (list line)))))
 
 (define (emit-lines! ctx lines)
   (for ([line (in-list lines)])
@@ -643,10 +673,10 @@
     ((if ,e1 ,e2 ,e3)
      (format "(~a if ~a else ~a)"
              (python-expr ctx e2 bounce?)
-             (python-expr ctx e1)
+             (python-condition ctx e1)
              (python-expr ctx e3 bounce?)))
-    ((import ,x* ...)
-     (for ([name (in-list x*)]) (emit-import! ctx (symbol->string name)))
+    ((import ,spec* ...)
+     (for ([spec (in-list spec*)]) (emit-import! ctx (import-line spec)))
      "None")
     ((begin ,e* ...)
      (cond [(null? e*) (need! ctx 'begin) "_begin()"]
@@ -690,6 +720,14 @@
      (emit-block! ctx (lambda () (emit! ctx (format "~a = ~a(_e)" tmp (python-expr ctx e1)))))
      tmp)))
 
+;; LB's truth: only #f is false, so 0, 0.0, "", '() and None are all true.
+;; A condition that is already a constant needs no test of its own.
+(define (python-condition ctx e)
+  (nanopass-case (LB Expr) e
+    (,l (if (eq? l #f) "False" "True"))
+    (',d (if (eq? d #f) "False" "True"))
+    (else (format "(~a is not False)" (python-expr ctx e)))))
+
 (define (python-constant ctx value)
   (when (datum-has-symbol? value) (need! ctx 'symbol))
   (python-datum value))
@@ -720,8 +758,8 @@
      (emit-block! ctx (lambda () (emit! ctx (format "~a~a(_e.value)" keyword handler-text))))
      (emit! ctx "except Exception as _e:")
      (emit-block! ctx (lambda () (emit! ctx (format "~a~a(_e)" keyword handler-text)))))
-    ((import ,x* ...)
-     (for ([name (in-list x*)]) (emit-import! ctx (symbol->string name))))
+    ((import ,spec* ...)
+     (for ([spec (in-list spec*)]) (emit-import! ctx (import-line spec))))
     ((begin ,e* ...)
      (emit-sequence! ctx e* tail?))
     ((trampoline ,body ...)
@@ -736,7 +774,7 @@
                           (format "_trampoline(~a)" bounced)))
        (emit! ctx (format "~a~a" (if tail? "return " "") driven))))
     ((if ,e1 ,e2 ,e3)
-     (emit! ctx (format "if ~a:" (python-expr ctx e1)))
+     (emit! ctx (format "if ~a:" (python-condition ctx e1)))
      (emit-block! ctx (lambda () (emit-stmt! ctx e2 tail?)))
      (emit! ctx "else:")
      (emit-block! ctx (lambda () (emit-stmt! ctx e3 tail?))))
@@ -818,8 +856,7 @@
   (define ctx (make-context (trampoline-procedures program)))
   (emit-stmt! ctx program #f)
   (define program-lines (render-lines (reverse (context-lines ctx))))
-  (define imports
-    (for/list ([name (in-list (context-imports ctx))]) (format "import ~a" name)))
+  (define imports (context-imports ctx))
   (define prelude
     (append*
      (for/list ([feature (in-list prelude-order)]
