@@ -66,8 +66,8 @@ e ::= x                                  variable, a Python global
     | (if e1 e2 e3)                      conditional
     | (begin e1 e* ...)                  a sequence, of expressions here
     | (raise e1)                         raise an exception
-    | (with-handler e1 e* ...)           run the body with e1 handling what it raises
-    | (trampoline e1 e* ...)             call what the body returns while it is a procedure
+    | (with-handler e1 s* ...)           run the body with e1 handling what it raises
+    | (trampoline s* ...)                call what the body returns while it is a procedure
     | (e0 e* ...)                        application
 
 d ::= int | float | string | boolean | list | tuple | dict
@@ -75,11 +75,15 @@ l ::= int | float | string | boolean | tuple | dict
 }|
 
 A procedure body is a sequence of statements, and its value is the last
-expression in it.  @racket[define] and @racket[set!] are statements;
-@racket[set!] of a name the program never defines is a Python assignment to a
-new name.  Several bodies are allowed in a definition, and in
-@racket[with-handler] and @racket[trampoline], where the extra ones are the
-@racket[begin] the language has room for.
+expression in it.  The body of a @racket[with-handler] or a @racket[trampoline]
+is a statement sequence too: when it holds @racket[define] or @racket[set!] it
+becomes a nested @racket[def] that runs where the form stands, and a lone
+expression stays an inline @racket[lambda].
+
+@racket[set!] of a name an enclosing procedure binds becomes @racket[nonlocal],
+and of a name the program defines at the top level @racket[global];
+@racket[set!] of a name the program never defines is a plain Python
+assignment.
 
 @subsection{Data}
 

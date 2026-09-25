@@ -107,6 +107,85 @@
   (when (hash-ref runtime-pieces sym #f) (need (hash-ref runtime-pieces sym)))
   (munged sym))
 
+;; names the compiler makes up
+(define fresh-count 0)
+(define (fresh base)
+  (set! fresh-count (add1 fresh-count))
+  (format "_~a~a" base fresh-count))
+
+;; statements that have to run before the statement being compiled: the body of
+;; a with-handler or a trampoline that holds statements becomes a nested def,
+;; and a def belongs before the statement that uses it
+(define pending '())
+
+;; the nonlocal and global declarations of the def being emitted
+(define declarations '())
+
+;; the names each enclosing procedure binds, innermost first, and the names the
+;; program defines at the top level
+(define scopes '())
+(define module-names '())
+
+(define (declare! line)
+  (unless (member line declarations)
+    (set! declarations (append declarations (list line)))))
+
+(define (defined-name stx)
+  (define target (cadr (syntax->list stx)))
+  (if (identifier? target)
+      (munged (syntax-e target))
+      (munged (syntax-e (car (syntax-e target))))))
+
+(define (collect-defined stx)
+  (define parts (syntax->list stx))
+  (cond [(not parts) '()]
+        [(eq? (head stx) 'quote) '()]
+        [(eq? (head stx) 'define)
+         (cons (defined-name stx) (append* (map collect-defined (cddr parts))))]
+        [else (append* (map collect-defined parts))]))
+
+(define (collect-defined-in forms) (append* (map collect-defined forms)))
+
+;; where a set! lands: a local name is assigned, a name an enclosing procedure
+;; binds needs nonlocal, and a name the program defines at the top needs global
+(define (assignment sym)
+  (define name (munged sym))
+  (cond [(null? scopes) name]
+        [(member name (car scopes)) name]
+        [(ormap (lambda (scope) (and (member name scope) #t)) (cdr scopes))
+         (declare! (format "nonlocal ~a" name))
+         name]
+        [(member name module-names)
+         (declare! (format "global ~a" name))
+         name]
+        [else name]))
+
+;; does this form hold a statement anywhere?  then its body needs a def
+(define (contains-statement? stx)
+  (define parts (syntax->list stx))
+  (cond [(not parts) #f]
+        [(eq? (head stx) 'quote) #f]
+        [(memq (head stx) '(define set!)) #t]
+        [else (ormap contains-statement? parts)]))
+
+(define (expression-body? bodies)
+  (and (pair? bodies) (not (ormap contains-statement? bodies))))
+
+;; the body of a with-handler or a trampoline: a lone expression stays a lambda,
+;; a body with statements in it becomes a nested def that runs where the form
+;; stands
+(define (hoist-thunk! bodies bounce?)
+  (define name (fresh "body"))
+  (set! pending
+        (append pending
+                (list (procedure-def name '() #f bodies (lambda (f) (branch-expr f bounce?))))))
+  name)
+
+(define (thunk-expr bodies bounce?)
+  (if (expression-body? bodies)
+      (format "lambda: ~a" (single bodies "body" bounce?))
+      (hoist-thunk! bodies bounce?)))
+
 (define (indented text)
   (string-join (for/list ([line (in-list (string-split text "\n"))])
                  (string-append "    " line))
@@ -143,7 +222,7 @@
 ;; (f e* ...): more than one body is the begin the language has room for
 (define (single bodies what [bounce? #f])
   (cond [(null? bodies) (error 'compile "~a: no body" what)]
-        [(null? (cdr bodies)) (expr (car bodies) bounce?)]
+        [(null? (cdr bodies)) (branch-expr (car bodies) bounce?)]
         [else (begin-expr bodies bounce?)]))
 
 (define (begin-expr bodies [bounce? #f])
@@ -151,7 +230,7 @@
   (define last-index (sub1 (length bodies)))
   (format "_begin(~a)"
           (string-join (for/list ([e (in-list bodies)] [i (in-naturals)])
-                         (if (= i last-index) (expr e bounce?) (expression e)))
+                         (if (= i last-index) (branch-expr e bounce?) (expression e)))
                        ", ")))
 
 ;; what a bounce calls: the body of a trampolined procedure
@@ -161,9 +240,12 @@
   (if (and sym (hash-ref trampolined sym #f)) (body-name sym) (expr f)))
 
 (define (tail-expr stx driver?)
-  (if (and (not driver?) (eq? (head stx) 'trampoline))
-      (single (cdr (syntax->list stx)) "trampoline" #t)
-      (expression stx)))
+  (define bodies (and (eq? (head stx) 'trampoline) (cdr (syntax->list stx))))
+  (cond [(and (not driver?) bodies)
+         (if (expression-body? bodies)
+             (single bodies "trampoline" #t)
+             (hoist-thunk! bodies #t))]
+        [else (branch-expr stx #f)]))
 
 (define (branch-expr stx bounce?)
   (if (statement-form? stx)
@@ -207,11 +289,14 @@
        [(with-handler)
         (when (< (length parts) 3) (not-le stx "a with-handler takes a handler and a body"))
         (need 'with-handler)
-        (format "_with_handler(~a, lambda: ~a)"
-                (expression (cadr parts)) (single (cddr parts) "with-handler"))]
+        (format "_with_handler(~a, ~a)"
+                (expression (cadr parts)) (thunk-expr (cddr parts) #f))]
        [(trampoline)
         (need 'trampoline)
-        (format "_trampoline(~a)" (single (cdr parts) "trampoline" #t))]
+        (format "_trampoline(~a)"
+                (if (expression-body? (cdr parts))
+                    (single (cdr parts) "trampoline" #t)
+                    (hoist-thunk! (cdr parts) #t)))]
        [(lambda) (not-le stx "LE has no lambda: a procedure comes from define")]
        [else (application stx bounce?)])]))
 
@@ -229,17 +314,49 @@
   (string-join (append params (if rest (list (format "*~a" rest)) '())) ", "))
 
 (define (body-lines forms tail-of)
-  (append (for/list ([f (in-list (drop-right forms 1))]) (statement f))
-          (list (format "return ~a" (tail-of (last forms))))))
+  (define earlier (for/list ([f (in-list (drop-right forms 1))]) (statement f)))
+  (define last-form (last forms))
+  (define saved pending)
+  (set! pending '())
+  (define tail
+    (if (statement-form? last-form)
+        ;; a body is a sequence of statements: one that ends in a statement, as
+        ;; a setter does, has no value to return
+        (begin (set! pending (append pending (list (statement last-form)))) "return None")
+        (format "return ~a" (tail-of last-form))))
+  (define hoisted pending)
+  (set! pending saved)
+  (append earlier hoisted (list tail)))
 
 (define (procedure-def name params rest forms tail-of)
+  (define saved-declarations declarations)
+  (define saved-scopes scopes)
+  (define saved-pending pending)
+  (set! declarations '())
+  (set! scopes (cons (append params (collect-defined-in forms)) scopes))
+  (set! pending '())
   (define lines
     (append (if rest (begin (need 'list) (list (format "~a = list(~a)" rest rest))) '())
             (body-lines forms tail-of)))
+  (define declarations-text (reverse declarations))
+  (set! declarations saved-declarations)
+  (set! scopes saved-scopes)
+  (set! pending saved-pending)
   (string-append (format "def ~a(~a):\n" name (params-text params rest))
-                 (indented (string-join lines "\n"))))
+                 (indented (string-join (append declarations-text lines) "\n"))))
 
+;; a statement, with whatever the expressions inside it had to hoist before it
 (define (statement s)
+  (define saved pending)
+  (set! pending '())
+  (define text (statement* s))
+  (define hoisted pending)
+  (set! pending saved)
+  (if (null? hoisted)
+      text
+      (string-append (string-join hoisted "\n\n") "\n" text)))
+
+(define (statement* s)
   (define parts (syntax->list s))
   (case (head s)
     [(define)
@@ -263,7 +380,7 @@
            [else (not-le s "a definition of what?")])]
     [(set!)
      (when (not (= 3 (length parts))) (not-le s "an assignment takes one expression"))
-     (format "~a = ~a" (munged (syntax-e (cadr parts))) (expression (caddr parts)))]
+     (format "~a = ~a" (assignment (syntax-e (cadr parts))) (expression (caddr parts)))]
     [(begin) (string-join (map statement (cdr parts)) "\n")]
     [(if)
      (when (not (= 4 (length parts))) (not-le s "an if takes three parts"))
@@ -311,6 +428,12 @@
 (define (compile-program forms)
   (hash-clear! needed)
   (hash-clear! trampolined)
+  (set! fresh-count 0)
+  (set! pending '())
+  (set! declarations '())
+  (set! scopes '())
+  (set! module-names
+        (for/list ([f (in-list forms)] #:when (eq? (head f) 'define)) (defined-name f)))
   (for ([f (in-list forms)]) (scan-trampolined! f))
   (define body (string-join (for/list ([f (in-list forms)]) (statement f)) "\n\n"))
   (define prelude-text (prelude))

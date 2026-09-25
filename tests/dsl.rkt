@@ -109,6 +109,54 @@
     (check-true (string-contains? code "object_has_attr_p("))
     (check-equal? (python-output code) "10\nTrue\n[10, 2, 3]\n"))
 
+  (test-case "a with-handler body can be statements"
+    (define code
+      (#%python-code
+        (define (recover e) (+ e 100))
+        (define x 0)
+        (define (boom)
+          (set! x 1)
+          (with-handler recover (set! x (+ x 1)) (raise 1)))
+        (print (boom))
+        (print x)))
+    (check-true (string-contains? code "global x"))
+    (check-equal? (python-output code) "101\n2\n"))
+
+  (test-case "a trampoline body can be statements"
+    (check-equal? (python-output
+                   (#%python-code
+                     (define (count n)
+                       (trampoline
+                         (print n)
+                         (if (= n 0) "done" (count (- n 1)))))
+                     (print (count 2))))
+                  "2\n1\n0\ndone\n"))
+
+  (test-case "a trampoline body with a statement hoists a def"
+    (define code
+      (#%python-code
+        (define x 0)
+        (define (count n)
+          (trampoline
+            (set! x (+ x 1))
+            (if (= n 0) x (count (- n 1)))))
+        (print (count 3))))
+    (check-true (string-contains? code "def _body1()"))
+    (check-equal? (python-output code) "4\n"))
+
+  (test-case "set! of an enclosing local is nonlocal"
+    (define code
+      (#%python-code
+        (define (counter)
+          (define n 0)
+          (define (bump) (set! n (+ n 1)))
+          (bump)
+          (bump)
+          n)
+        (print (counter))))
+    (check-true (string-contains? code "nonlocal n"))
+    (check-equal? (python-output code) "2\n"))
+
   (test-case "quoted data has no symbols"
     (check-equal? (python-output
                    (#%python-code (print (quote (1 "a" #t)))))
