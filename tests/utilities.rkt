@@ -10,7 +10,7 @@
 (require rackunit
          racket/string
          racket/system
-         "../core/python.rkt")
+         "../main.rkt")
 
 (provide transpile
          python-executable

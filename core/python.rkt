@@ -28,8 +28,7 @@
          racket/string)
 
 (provide compile-LB
-         python-name
-         transpile)
+         python-name)
 
 ;; ---------------------------------------------------------------------------
 ;; Names
@@ -49,6 +48,13 @@
   (hasheq #\- "_" #\? "_p" #\! "_b" #\< "_lt" #\> "_gt" #\= "_eq" #\/ "_slash"
           #\* "_star" #\+ "_plus" #\% "_pct" #\^ "_hat" #\& "_amp" #\| "_bar"
           #\~ "_tilde" #\@ "_at" #\$ "_dollar" #\: "_colon" #\. "_dot" #\# "_hash"))
+
+;; Names that read better as infix operators.  Without this `(+ 1 2)` would be a
+;; call to an undefined `+`; with it the generated code stays close to the
+;; source, and the Python-side `eval` renders them the same way.
+(define infix-operators
+  (hasheq '+ "+" '- "-" '* "*" '/ "/" 'quotient "//" 'modulo "%" 'expt "**"
+          '< "<" '> ">" '<= "<=" '>= ">=" '= "==" 'equal? "==" 'eq? "is"))
 
 ;; A Scheme name as a readable Python identifier: `even?` -> `even_p`,
 ;; `set-car!` -> `set_car_b`, `if` -> `if_`.  Stable, so a name always compiles
@@ -125,6 +131,34 @@
         [(pair? value) (or (datum-has-symbol? (car value)) (datum-has-symbol? (cdr value)))]
         [else #f]))
 
+;; The entries of the tables the Python-side `eval` renders forms with.  They
+;; come from the tables the emitter itself uses, so that both agree, and they
+;; are sorted so that a program always compiles to the same text.
+(define (name-character-entries)
+  (for/list ([entry (in-list (sort (hash->list character-names) char<? #:key car))])
+    (cons (python-string (string (car entry))) (python-string (cdr entry)))))
+
+(define (name-reserved-entries)
+  (for/list ([name (in-list (sort (remove-duplicates (append python-keywords prelude-names))
+                                  string<?))])
+    (python-string name)))
+
+(define (infix-operator-entries)
+  (for/list ([entry (in-list (sort (hash->list infix-operators)
+                                   string<?
+                                   #:key (lambda (entry) (symbol->string (car entry)))))])
+    (cons (python-string (symbol->string (car entry))) (python-string (cdr entry)))))
+
+(define (python-table entries)
+  (string-append "{"
+                 (string-join (for/list ([entry (in-list entries)])
+                                (format "~a: ~a" (car entry) (cdr entry)))
+                              ", ")
+                 "}"))
+
+(define (python-set entries)
+  (string-append "{" (string-join entries ", ") "}"))
+
 ;; ---------------------------------------------------------------------------
 ;; Prelude
 ;; ---------------------------------------------------------------------------
@@ -162,9 +196,201 @@
      "    return value")
    'begin
    '("def _begin(*values):"
-     "    return values[-1]")))
+     "    return values[-1]")
+   'list
+   '("_builtin_list = list"
+     ""
+     "def list(*items):"
+     "    \"\"\"(list x* ...): a list, which is what a quoted LB list already is.\"\"\""
+     "    return _builtin_list(items)")
+   'apply
+   '("def apply(function, *arguments):"
+     "    \"\"\"(apply f a* args): call f with `args` spread over the end.\"\"\""
+     "    return function(*arguments[:-1], *arguments[-1])")
+   'keyword-apply
+   '("def keyword_apply(function, keyword_arguments, arguments):"
+     "    \"\"\"(keyword-apply f kws args): call f with keyword arguments.\"\"\""
+     "    return function(*arguments, **keyword_arguments)")
+   'gensym
+   '("_gensym_counter = 0"
+     ""
+     "def gensym(prefix=\"g\"):"
+     "    \"\"\"(gensym) or (gensym prefix): a fresh symbol, interned like any other.\"\"\""
+     "    global _gensym_counter"
+     "    _gensym_counter = _gensym_counter + 1"
+     "    return Symbol(\"%s%d\" % (prefix, _gensym_counter))")
+   'eval
+   (append
+    (list
+     ;; The tables below are generated from the tables `python-name` and the
+     ;; operator emitter use, so that a form compiled here means the same thing
+     ;; as the same form compiled by the transpiler.
+     (format "_name_characters = ~a" (python-table (name-character-entries)))
+     (format "_name_reserved = ~a" (python-set (name-reserved-entries)))
+     (format "_infix_operators = ~a" (python-table (infix-operator-entries)))
+     ;; The macro table the macro pass fills in; `{}` when a program has none.
+     "_macro_signatures = {}"
+     ""
+     "def _eval_name(value):"
+     "    \"\"\"The Python name of a symbol: the munging `python-name` does.\"\"\""
+     "    text = str(value)"
+     "    parts = []"
+     "    for character in text:"
+     "        if character.isalnum() or character == \"_\":"
+     "            parts.append(character)"
+     "        elif character in _name_characters:"
+     "            parts.append(_name_characters[character])"
+     "        else:"
+     "            parts.append(\"_u%d\" % ord(character))"
+     "    name = \"\".join(parts)"
+     "    if name == \"\":"
+     "        name = \"_\""
+     "    elif name[0].isdigit():"
+     "        name = \"_\" + name"
+     "    if name in _name_reserved:"
+     "        name = name + \"_\""
+     "    return name"
+     ""
+     "def _eval_literal(value):"
+     "    \"\"\"Python source for a datum: a symbol becomes an interned Symbol.\"\"\""
+     "    if isinstance(value, Symbol):"
+     "        return \"Symbol(%r)\" % str(value)"
+     "    if isinstance(value, _builtin_list):"
+     "        return \"[%s]\" % \", \".join(_eval_literal(item) for item in value)"
+     "    if isinstance(value, tuple):"
+     "        if len(value) == 1:"
+     "            return \"(%s,)\" % _eval_literal(value[0])"
+     "        return \"(%s)\" % \", \".join(_eval_literal(item) for item in value)"
+     "    if isinstance(value, dict):"
+     "        return \"{%s}\" % \", \".join(\"%s: %s\" % (_eval_literal(key), _eval_literal(item))"
+     "                                  for key, item in value.items())"
+     "    if value is True:"
+     "        return \"True\""
+     "    if value is False:"
+     "        return \"False\""
+     "    if isinstance(value, float):"
+     "        if value != value:"
+     "            return \"float('nan')\""
+     "        if value == float(\"inf\"):"
+     "            return \"float('inf')\""
+     "        if value == float(\"-inf\"):"
+     "            return \"float('-inf')\""
+     "    return repr(value)"
+     ""
+     "def _eval_value(form):"
+     "    \"\"\"Python source for `form` where its value is wanted.\"\"\""
+     "    if isinstance(form, Symbol):"
+     "        return _eval_name(form)"
+     "    if not isinstance(form, _builtin_list):"
+     "        return _eval_literal(form)"
+     "    if not form:"
+     "        raise Exception(\"eval: () is not a form\")"
+     "    head = form[0]"
+     "    if isinstance(head, Symbol):"
+     "        if len(form) == 2 and head == Symbol(\"quote\"):"
+     "            return _eval_literal(form[1])"
+     "        if len(form) == 4 and head == Symbol(\"if\"):"
+     "            return \"(%s if %s else %s)\" % (_eval_value(form[2]), _eval_value(form[1]),"
+     "                                            _eval_value(form[3]))"
+     "        if len(form) >= 2 and head == Symbol(\"begin\"):"
+     "            return \"_begin(%s)\" % \", \".join(_eval_value(item) for item in form[1:])"
+     "        if len(form) >= 3 and head in _infix_operators:"
+     "            return \"(%s)\" % (\" %s \" % _infix_operators[head]).join("
+     "                _eval_value(item) for item in form[1:])"
+     "        if head == Symbol(\"and\"):"
+     "            if len(form) == 1:"
+     "                return \"(True)\""
+     "            return \"(%s)\" % \" and \".join(_eval_value(item) for item in form[1:])"
+     "        if head == Symbol(\"or\"):"
+     "            if len(form) == 1:"
+     "                return \"(False)\""
+     "            return \"(%s)\" % \" or \".join(_eval_value(item) for item in form[1:])"
+     "        if len(form) == 2 and head == Symbol(\"not\"):"
+     "            return \"(not %s)\" % _eval_value(form[1])"
+     "        if len(form) == 2 and head == Symbol(\"negate\"):"
+     "            return \"(- %s)\" % _eval_value(form[1])"
+     "        if head in _macro_signatures:"
+     "            # a macro call: hand the argument forms to the macro, then compile"
+     "            # whatever form it returns"
+     "            arity, has_rest = _macro_signatures[head]"
+     "            arguments = [_eval_literal(item) for item in form[1:]]"
+     "            if has_rest:"
+     "                arguments = arguments[:arity] + [\"[%s]\" % \", \".join(arguments[arity:])]"
+     "            return \"eval(apply(%s, [%s]))\" % (_eval_name(head), \", \".join(arguments))"
+     "        if len(form) == 3 and head == Symbol(\"set!\"):"
+     "            return \"(%s := %s)\" % (_eval_name(form[1]), _eval_value(form[2]))"
+     "    return \"%s(%s)\" % (_eval_value(head), \", \".join(_eval_value(item) for item in form[1:]))"
+     ""
+     "def _eval_statements(form, lines, target, indent):"
+     "    \"\"\"Append statements that leave the value of `form` in `target`.\"\"\""
+     "    pad = \"    \" * indent"
+     "    if isinstance(form, _builtin_list) and form and isinstance(form[0], Symbol):"
+     "        head = form[0]"
+     "        if head == Symbol(\"set!\") and len(form) == 3:"
+     "            lines.append(\"%s%s = %s\" % (pad, _eval_name(form[1]), _eval_value(form[2])))"
+     "            lines.append(\"%s%s = None\" % (pad, target))"
+     "            return"
+     "        if head == Symbol(\"define\") and len(form) == 3 and isinstance(form[1], Symbol):"
+     "            lines.append(\"%s%s = %s\" % (pad, _eval_name(form[1]), _eval_value(form[2])))"
+     "            lines.append(\"%s%s = None\" % (pad, target))"
+     "            return"
+     "        if head == Symbol(\"define\") and len(form) == 3 and isinstance(form[1], _builtin_list):"
+     "            name = _eval_name(form[1][0])"
+     "            parameters = \", \".join(_eval_name(item) for item in form[1][1:])"
+     "            lines.append(\"%sdef %s(%s):\" % (pad, name, parameters))"
+     "            body = []"
+     "            _eval_statements(form[2], body, \"_eval_result\", indent + 1)"
+     "            lines.extend(body)"
+     "            lines.append(\"%s    return _eval_result\" % pad)"
+     "            lines.append(\"%s%s = None\" % (pad, target))"
+     "            return"
+     "        if head == Symbol(\"begin\"):"
+     "            parts = form[1:]"
+     "            if not parts:"
+     "                lines.append(\"%s%s = None\" % (pad, target))"
+     "                return"
+     "            for item in parts[:-1]:"
+     "                _eval_statements(item, lines, \"_eval_discard\", indent)"
+     "            _eval_statements(parts[-1], lines, target, indent)"
+     "            return"
+     "        if head == Symbol(\"if\") and len(form) == 4:"
+     "            lines.append(\"%sif %s:\" % (pad, _eval_value(form[1])))"
+     "            _eval_statements(form[2], lines, target, indent + 1)"
+     "            lines.append(\"%selse:\" % pad)"
+     "            _eval_statements(form[3], lines, target, indent + 1)"
+     "            return"
+     "        if head == Symbol(\"raise\") and len(form) == 2:"
+     "            lines.append(\"%sraise _Raised(%s)\" % (pad, _eval_value(form[1])))"
+     "            lines.append(\"%s%s = None\" % (pad, target))"
+     "            return"
+     "    lines.append(\"%s%s = %s\" % (pad, target, _eval_value(form)))"
+     ""
+     "def eval(form):"
+     "    \"\"\"Evaluate a form built at run time, in the program's globals.\"\"\""
+     "    lines = []"
+     "    _eval_statements(form, lines, \"_eval_result\", 0)"
+     "    globals()[\"_eval_result\"] = None"
+     "    exec(\"\\n\".join(lines), globals())"
+     "    result = globals()[\"_eval_result\"]"
+     "    del globals()[\"_eval_result\"]"
+     "    return result"))))
 
-(define prelude-order '(symbol raised trampoline begin))
+;; Pieces that cannot be emitted without others.
+(define prelude-dependencies
+  (hasheq 'gensym '(symbol)
+          ;; a form a program builds at run time may call any of the runtime
+          ;; functions, so eval brings them all along
+          'eval '(symbol raised begin list apply keyword-apply gensym)))
+
+(define prelude-order
+  '(symbol raised trampoline begin list apply keyword-apply gensym eval))
+
+;; The Python-side runtime functions.  A program reaches them as free variables,
+;; and each one brings its prelude piece along; a program that defines one of
+;; these names itself simply replaces the runtime function.
+(define runtime-functions '(list apply keyword-apply gensym eval))
+
+
 
 ;; ---------------------------------------------------------------------------
 ;; Emission context
@@ -197,7 +423,9 @@
 
 (define (need! ctx feature)
   (unless (memq feature (context-features ctx))
-    (set-context-features! ctx (cons feature (context-features ctx)))))
+    (set-context-features! ctx (cons feature (context-features ctx)))
+    (for ([dependency (in-list (hash-ref prelude-dependencies feature '()))])
+      (need! ctx dependency))))
 
 (define (temp! ctx)
   (set-context-temps! ctx (add1 (context-temps ctx)))
@@ -230,6 +458,18 @@
 (define (scope-define! ctx name)
   (define current (car (context-scopes ctx)))
   (set-scope-names! current (cons name (scope-names current))))
+
+;; Is this name bound by a scope of the program itself?
+(define (bound-name? ctx name)
+  (for/or ([scope (in-list (context-scopes ctx))])
+    (memq name (scope-names scope))))
+
+;; A variable is a reference to a Python global unless a scope of the program
+;; binds it.  Naming one of the runtime functions brings in its prelude piece.
+(define (variable-expression ctx name)
+  (unless (bound-name? ctx name)
+    (when (memq name runtime-functions) (need! ctx name)))
+  (python-name name))
 
 (define (outer-function-local? ctx name)
   (for/or ([s (in-list (cdr (context-scopes ctx)))])
@@ -322,12 +562,6 @@
 ;; Operators
 ;; ---------------------------------------------------------------------------
 
-;; Names that read better as infix operators.  Without this `(+ 1 2)` would be a
-;; call to an undefined `+`; with it the generated code stays close to the
-;; source.
-(define infix-operators
-  (hasheq '+ "+" '- "-" '* "*" '/ "/" 'quotient "//" 'modulo "%" 'expt "**"
-          '< "<" '> ">" '<= "<=" '>= ">=" '= "==" 'equal? "==" 'eq? "is"))
 
 ;; The arguments are never rendered in bounce position: an operator is a strict
 ;; primitive, so `(+ (f x) (g y))` has to compute both calls, not build thunks
@@ -356,7 +590,7 @@
 
 (define (python-expr ctx e [bounce? #f])
   (nanopass-case (LB Expr) e
-    (,x (python-name x))
+    (,x (variable-expression ctx x))
     (,l (python-constant ctx l))
     (',d (python-constant ctx d))
     ((,e0 ,e* ...)
@@ -530,21 +764,6 @@
     (if (zero? (car line))
         (cdr line)
         (string-append (make-string (* 4 (car line)) #\space) (cdr line)))))
-
-;; LB source text -> Python source text.  Reading is Racket's own `read`, so
-;; there is no lexer to maintain; a source file with several top-level forms
-;; becomes one `(begin form ...)`, and an empty file an empty `(begin)`.
-(define (transpile source)
-  (define in (open-input-string source))
-  (define (read-forms)
-    (let loop ([forms '()])
-      (define form (read in))
-      (if (eof-object? form) (reverse forms) (loop (cons form forms)))))
-  (define forms (read-forms))
-  (compile-LB
-   (parse-LB (cond [(null? forms) '(begin)]
-                   [(null? (cdr forms)) (car forms)]
-                   [else (cons 'begin forms)]))))
 
 (define (compile-LB program)
   (define ctx (make-context (trampoline-procedures program)))

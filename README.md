@@ -23,6 +23,13 @@ d ::= int | float | string | boolean | symbol | list | tuple | dict
 l ::= int | float | string | boolean | tuple | dict
 ```
 
+LM, in `passes/macro.rkt`, is LB plus macros:
+
+```racket
+(defmacro (name param ...) e)           fixed arity
+(defmacro (name param ... . rest) e)    the rest of the forms become a list
+```
+
 `core/python.rkt` turns LB into Python; the package module `rkt-pythonize`
 re-exports it:
 
@@ -55,6 +62,36 @@ $ echo '(print (+ 1 2))' | raco rkt-pythonize
 Options come before the input file.  Before the package is installed, the same
 entry point runs as `racket main.rkt ...`.
 
+Macros:
+
+```racket
+(defmacro (unless c . body) (list 'if c #f (+ '(begin) body)))
+(unless #f (print 1) (print 2))
+```
+
+A macro is an ordinary procedure whose parameters are bound to the *unevaluated*
+argument forms, and which returns the form to evaluate instead.  A form is data
+-- a symbol is an interned `Symbol`, a list is a Python list -- so a macro body
+destructures and builds forms with the Python operations it already has, and
+`gensym` is there when it needs a name nothing else can capture.  The pass
+lowers a macro definition to the `define` of that procedure and a macro call to
+`(eval '<the call form>)`, so the expansion happens in the generated program:
+
+```racket
+(begin
+  (define _macro_signatures '#hash((unless . #(1 #t))))
+  (begin
+    (define (unless c body) (list 'if c #f (+ '(begin) body)))
+    (eval '(unless #f (print 1)))))
+```
+
+Five Python-side runtime functions make that work, and are there for any
+program: `list` (a list, the same thing a quoted list already is), `apply`,
+`keyword-apply`, `gensym`, and `eval` (which compiles a form built at run time
+through the same tables the transpiler uses, and runs it in the program's
+globals).  There is no automatic hygiene, `defmacro` belongs at the top level,
+and the runtime function names belong to the runtime.
+
 Design notes:
 
 * Clojure is the inspiration for the *shape* of the transpiler, not for the
@@ -82,13 +119,15 @@ Design notes:
 Layout:
 
 ```
-main.rkt                     the package module and the command line entry point
+main.rkt                     the package module, the pipeline, and the command line entry point
 core/base.rkt                the LB language definition (grammar, predicates, parser)
+passes/macro.rkt             LM (LB plus defmacro) -> LB
 core/python.rkt              LB -> Python
 scribblings/rkt-pythonize.scrbl  the manual
 tests/LB.rkt                 grammar and parser tests
 tests/python.rkt             end-to-end tests: LB source -> Python -> a real interpreter
 tests/main.rkt               command line tests
+tests/macro.rkt              macro and runtime function tests
 tests/utilities.rkt          helpers shared by the end-to-end tests
 ```
 

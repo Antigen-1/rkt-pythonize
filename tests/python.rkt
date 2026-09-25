@@ -176,6 +176,19 @@ SRC
     (check-python-output "(print '(1 (2 (3))))" "[1, [2, [3]]]\n")
     (check-python-output "(print '#(1 (2)))" "(1, [2])\n"))
 
+  (test-case "a quoted list is a Python list, not a linked list"
+    ;; it is a Python list, so the Python operations on lists are the operations
+    ;; on forms: there is no cons, car or cdr anywhere in the runtime
+    (check-python-output
+     #<<SRC
+(print ((getattr '(1 2 3) "__len__")))
+(print ((getattr '(1 2 3) "__getitem__") 0))
+(print (+ '(1 2) '(3)))
+(begin (define xs '(1 2 3)) ((getattr xs "append") 4) (print xs))
+SRC
+     "3\n1\n[1, 2, 3]\n[1, 2, 3, 4]\n")
+    (check-python-failure "(print (car '(1 2)))" #rx"NameError: name 'car' is not defined"))
+
   (test-case "Scheme names become readable Python names"
     (check-python-output "(define (zero? n) (= n 0))\n(print (zero? 0))" "True\n")
     (check-python-output "(define (add-one! n) (+ n 1))\n(print (add-one! 41))" "42\n")

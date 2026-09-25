@@ -17,7 +17,8 @@
          racket/path
          racket/port
          "core/base.rkt"
-         "core/python.rkt")
+         "core/python.rkt"
+         "passes/macro.rkt")
 
 (provide run-cli
          ;; the LB language
@@ -27,10 +28,35 @@
          variable?
          literal?
          datum?
+         ;; macro expansion: LM -> LB
+         LM
+         parse-LM
+         unparse-LM
+         macro-signature?
+         expand-macros
          ;; LB -> Python
          compile-LB
          python-name
          transpile)
+
+;; LB source text -> Python source text.  Reading is Racket's own `read`, so
+;; there is no lexer to maintain; a source file with several top-level forms
+;; becomes one `(begin form ...)`, and an empty file an empty `(begin)`.
+;;
+;; The pipeline is: read, check as LM, expand macros into LB, compile to Python.
+(define (transpile source)
+  (define forms (read-forms source))
+  (define program
+    (cond [(null? forms) '(begin)]
+          [(null? (cdr forms)) (car forms)]
+          [else (cons 'begin forms)]))
+  (compile-LB (expand-macros (parse-LM program))))
+
+(define (read-forms source)
+  (define in (open-input-string source))
+  (let loop ([forms '()])
+    (define form (read in))
+    (if (eof-object? form) (reverse forms) (loop (cons form forms)))))
 
 (define program-name "rkt-pythonize")
 
