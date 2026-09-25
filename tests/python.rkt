@@ -82,6 +82,16 @@ SRC
     (check-exn exn:fail? (lambda () (transpile "(print (if #t (define x 1) 2))\n")))
     (check-exn exn:fail? (lambda () (transpile "(define x 0)\n(print (if #f (set! x 1) 7))\n")))
     (check-exn exn:fail? (lambda () (transpile "(define x (set! y 1))\n")))
+    ;; the runtime eval, which compiles the forms a macro builds, refuses the
+    ;; same thing, in a branch and in a value-position begin
+    (check-python-failure
+     "(print (eval (quote (+ 1 (define n 2)))))"
+     #rx"statement cannot be used as an expression")
+    (check-python-failure
+     "(print (eval (quote (+ 1 (set! n 2)))))"
+     #rx"statement cannot be used as an expression")
+    ;; while a statement-position begin in an eval'd form still defines
+    (check-python-output "(print (eval (quote (begin (define n 7) n))))" "7\n")
     ;; and a with-handler in a value position is guarded, which it could not be
     ;; when it emitted a statement of its own
     (check-python-output "(print (if #f (with-handler print (raise 1)) 7))" "7\n")
