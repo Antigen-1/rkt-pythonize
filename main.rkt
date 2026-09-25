@@ -1,129 +1,86 @@
 #lang racket/base
 
-;; Notice
-;; To install (from within the package directory):
-;;   $ raco pkg install
-;; To install (once uploaded to pkgs.racket-lang.org):
-;;   $ raco pkg install <<name>>
-;; To uninstall:
-;;   $ raco pkg remove <<name>>
-;; To view documentation:
-;;   $ raco docs <<name>>
+;; rkt-pythonize: a Lisp-to-Python transpiler.
 ;;
-;; For your convenience, we have included LICENSE-MIT and LICENSE-APACHE files.
-;; If you would prefer to use a different license, replace those files with the
-;; desired license.
+;;   raco rkt-pythonize [<file>|-] [-o <output>]
 ;;
-;; Some users like to add a `private/` directory, place auxiliary files there,
-;; and require them in `main.rkt`.
+;; With no <file>, or with `-', the LB program is read from stdin and the Python
+;; program goes to stdout.  With a <file> the Python program is written next to
+;; it with a `.py' extension, unless `-o' says otherwise.
 ;;
-;; See the current version of the racket style guide here:
-;; http://docs.racket-lang.org/style/index.html
+;; The module doubles as the package's main module: `racket main.rkt', the
+;; `rkt-pythonize' launcher, and `raco rkt-pythonize' (see `raco-commands' in
+;; info.rkt) all run the `main' submodule below.
 
-;; Code here
+(require racket/cmdline
+         racket/file
+         racket/path
+         racket/port
+         "core/base.rkt"
+         "core/python.rkt")
 
-(require "core/main.rkt" "passes/uniquify.rkt" "passes/explicit.rkt" "passes/cps.rkt" "passes/quote.rkt" "passes/let.rkt"
-         "passes/named-let.rkt" "passes/cond.rkt" "passes/chain.rkt" "passes/vm.rkt"
-         "passes/stream.rkt" "passes/more-cond.rkt" "passes/cond-explicit.rkt"
-         "passes/partial-evaluate.rkt" "passes/L0-uniquify.rkt" "passes/handler.rkt" "passes/main.rkt"
-         racket/contract racket/file)
-(provide L parse-L unparse-L current-primitives py-lib-string
-         (contract-out (rename compile compile-scheme-code
-                               (->* (any/c)
-                                    (#:opt? boolean?)
-                                    any))))
+(provide run-cli
+         ;; the LB language
+         LB
+         parse-LB
+         unparse-LB
+         variable?
+         literal?
+         datum?
+         ;; LB -> Python
+         compile-LB
+         python-name
+         transpile)
 
-(define py-lib-string (file->string core-py))
+(define program-name "rkt-pythonize")
 
-(define (repeat-pass n p e)
-  (let loop ((n n) (e e))
-    (if (= n 0)
-        e
-        (loop (- n 1) (p e)))))
+(define usage-text
+  (string-append
+   "usage: raco " program-name " [-o <output>] [<file>|-]\n"
+   "\n"
+   "Transpile an LB program to Python.  With no <file>, or with `-', the LB\n"
+   "program is read from stdin.  The Python program is written next to <file>\n"
+   "with a `.py' extension, or to <output> when that is given (`-' for stdout).\n"
+   "Options come before the input file.\n"))
 
-(define (compile code #:opt? (opt? #t))
-  ((compose1
-    compile-L0
-    L0-uniquify
-    cps
-    (lambda (e) 
-      (if opt?
-          (repeat-pass 5 partial-evaluate e)
-          e))
-    uniquify
-    make-explicit
-    add-quote
-    expand-let
-    expand-named-let
-    expand-cond
-    expand-chain
-    expand-vm
-    expand-stream
-    expand-more-cond
-    make-cond-explicit
-    expand-exn-handler
-    expand-defines
-    parse-L)
-   code))
+;; Run the command line `args' and return the exit code.
+(define (run-cli args)
+  (define output #f)
+  (define given '())
+  (command-line
+   #:program (string-append "raco " program-name)
+   #:argv (list->vector args)
+   #:once-each
+   [("-o" "--output") path "write the Python program to <output> (`-' for stdout)"
+                       (set! output path)]
+   #:args files
+   (set! given files))
+  (cond
+    [(> (length given) 1)
+     (eprintf "~a: expected at most one input file, got ~a~n" program-name (length given))
+     (when (ormap (lambda (arg) (regexp-match? #rx"^-" arg)) given)
+       (eprintf "~a: options come before the input file~n" program-name))
+     (eprintf "~a" usage-text)
+     1]
+    [else
+     (define input (if (null? given) "-" (car given)))
+     (define target
+       (cond [output output]
+             [(string=? input "-") "-"]
+             [else (path->string (path-replace-extension (string->path input) #".py"))]))
+     (with-handlers ([exn:fail?
+                      (lambda (e)
+                        (eprintf "~a: ~a~n" program-name (exn-message e))
+                        1)])
+       (define source
+         (if (string=? input "-")
+             (port->string (current-input-port))
+             (file->string input)))
+       (define python (transpile source))
+       (if (string=? target "-")
+           (display python)
+           (display-to-file python (string->path target) #:exists 'replace))
+       0)]))
 
 (module+ main
-  ;; (Optional) main submodule. Put code here if you need it to be executed when
-  ;; this file is run using DrRacket or the `racket` executable.  The code here
-  ;; does not run when this file is required by another module. Documentation:
-  ;; http://docs.racket-lang.org/guide/Module_Syntax.html#%28part._main-and-test%29
-
-  (require racket/cmdline racket/match racket/list racket/system racket/pretty raco/command-name)
-  (define dest (box #f))
-  (define json? (box #f))
-  (define python (box (or (cond ((getenv "PYTHON_EXE") => find-executable-path) (else #f))
-                          (find-executable-path "python3") 
-                          (find-executable-path "python"))))
-
-  (define (execute exe code (form 'unknown))
-    (cond ((system* exe core-py code) => void)
-          (else (raise-user-error 'rkt-pythonize "Fail to run the scheme code:\n~a" (pretty-format #:mode 'write form)))))
-
-  (command-line
-    #:program (short-program+command-name)
-    #:once-each
-    [("-o" "--output") o "Where to write generated code" (set-box! dest o)]
-    [("-p" "--python") py "Set the python executable" (set-box! python (find-executable-path py))]
-    [("-j" "--json") "Recognize supplied files as json codes" (set-box! json? #t)]
-    #:ps
-    "When -j/--json is not provided:"
-    "If -o/--ouput is provided, json codes will be saved to the specified file."
-    "Otherwise, json codes will be evaluated directly."
-    "When -j/--json is provided:"
-    "Exactly one json file should be provided and will then be executed."
-    #:args files
-    (define/contract python-exe 
-        path-string?
-        (unbox python))
-    (match* (files json?)
-      (((list source0 sources ...) (box #f))
-       (define dest-path (unbox dest))
-
-       (define form
-          (cons 'begin
-            (append*
-             (map
-               (lambda (source)
-                 (call-with-input-file
-                   source
-                   (lambda (in)
-                     (let loop ()
-                       (define v (read in))
-                       (if (eof-object? v)
-                           null
-                           (cons v (loop)))))))
-               (cons source0 sources)))))
-       (define compiled (compile form))
-
-       (if dest-path
-           (call-with-output-file dest-path #:exists 'truncate/replace (lambda (out) (write-string compiled out)))
-           (execute python-exe compiled form)))
-      (((list json) (box #t))
-       (execute python-exe (file->string json)))
-      ((files json?)
-       (raise-user-error 'rkt-pythonize "Malformed arguments:\n\tfiles: ~s\n\tjson?: ~s" files (unbox json?))))))
-
+  (exit (run-cli (vector->list (current-command-line-arguments)))))

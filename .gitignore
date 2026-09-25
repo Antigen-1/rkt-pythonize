@@ -5,3 +5,5 @@
 compiled/
 /doc/
 .git_*
+__pycache__/
+*.pyc

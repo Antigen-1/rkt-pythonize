@@ -1,0 +1,260 @@
+#lang racket/base
+
+;; End-to-end tests: LB source text goes through `transpile` and the resulting
+;; Python program is run by a real interpreter, so these check behaviour (and,
+;; where readability is the point, the exact generated text).
+;;
+;; The interpreter is `$TEST_PYTHON_EXE` when that is set, and otherwise
+;; `python3` from PATH.
+
+(require rackunit
+         racket/string
+         "utilities.rkt")
+
+(module+ test
+  (test-case "literals and printing"
+    (check-python-output "(print 42)" "42\n")
+    (check-python-output "(print 4.5)" "4.5\n")
+    (check-python-output "(print \"hi\")" "hi\n")
+    (check-python-output "(print #t)" "True\n")
+    (check-python-output "(print #f)" "False\n")
+    (check-python-output "(print #(1 2 3))" "(1, 2, 3)\n")
+    (check-python-output "(print #hash((a . 1)))" "{'a': 1}\n"))
+
+  (test-case "arithmetic and the operator table"
+    (check-python-output "(print (+ 1 (* 2 3)))" "7\n")
+    (check-python-output "(print (- 10 3 2))" "5\n")
+    (check-python-output "(print (/ 7 2))" "3.5\n")
+    (check-python-output "(print (quotient 7 2))" "3\n")
+    (check-python-output "(print (modulo 7 2))" "1\n")
+    (check-python-output "(print (expt 2 10))" "1024\n")
+    (check-python-output "(print (< 1 2))" "True\n")
+    (check-python-output "(print (= 1 2))" "False\n")
+    (check-python-output "(print (equal? #(1 2) #(1 2)))" "True\n")
+    (check-python-output "(print (and 1 2 3))" "3\n")
+    (check-python-output "(print (or #f 3))" "3\n")
+    (check-python-output "(print (not #f))" "True\n")
+    (check-python-output "(print (+ \"a\" \"b\"))" "ab\n"))
+
+  (test-case "a free variable is a Python global"
+    (check-python-output "(print (len #(1 2 3)))" "3\n")
+    (check-python-output "(print (str 42))" "42\n")
+    (check-python-output "(print (abs -5))" "5\n"))
+
+  (test-case "definitions and assignment"
+    (check-python-output "(define x 1)\n(set! x (+ x 41))\n(print x)" "42\n")
+    (check-python-output "(define (double x) (* x 2))\n(print (double 21))" "42\n")
+    (check-python-output "(print (begin 1 2 3))" "3\n"))
+
+  (test-case "conditionals"
+    (check-python-output "(print (if (< 1 2) \"yes\" \"no\"))" "yes\n")
+    (check-python-output "(define x 5)\n(if (= x 5) (print \"five\") (print \"other\"))" "five\n"))
+
+  (test-case "recursion"
+    (check-python-output
+     #<<SRC
+(define (fact n)
+  (if (= n 0) 1 (* n (fact (- n 1)))))
+(print (fact 5))
+SRC
+     "120\n"))
+
+  (test-case "closures and set! of an enclosing local"
+    (check-python-output
+     #<<SRC
+(define (make-counter)
+  (begin
+    (define n 0)
+    (define (tick) (begin (set! n (+ n 1)) n))
+    tick))
+(define c (make-counter))
+(print (c))
+(print (c))
+(print ((make-counter)))
+SRC
+     "1\n2\n1\n")
+    ;; the bounces of a trampolined closure assign an enclosing local
+    (check-python-output
+     #<<SRC
+(define (make-counter)
+  (begin
+    (define n 0)
+    (define (tick) (trampoline (begin (set! n (+ n 1)) n)))
+    tick))
+(define c (make-counter))
+(print (c))
+(print (c))
+SRC
+     "1\n2\n"))
+
+  (test-case "trampoline keeps tail calls flat"
+    (check-python-output
+     #<<SRC
+(define (count n acc)
+  (trampoline (if (= n 0) acc (count (- n 1) (+ acc 1)))))
+(print (count 100000 0))
+SRC
+     "100000\n")
+    (check-python-output
+     #<<SRC
+(define (even? n) (trampoline (if (= n 0) #t (odd? (- n 1)))))
+(define (odd? n) (trampoline (if (= n 0) #f (even? (- n 1)))))
+(print (even? 100000))
+SRC
+     "True\n"))
+
+  (test-case "a trampolined procedure drives itself wherever it is called"
+    ;; a non-tail call returns a value, not a thunk
+    (check-python-output
+     #<<SRC
+(define (count n acc) (trampoline (if (= n 0) acc (count (- n 1) (+ acc 1)))))
+(define (add-one n) (+ 1 (count n 0)))
+(print (add-one 100000))
+SRC
+     "100001\n")
+    ;; a call through a variable is driven by the callee
+    (check-python-output
+     #<<SRC
+(define (count n acc) (trampoline (if (= n 0) acc (count (- n 1) (+ acc 1)))))
+(define (run f) (f 100000 0))
+(print (run count))
+SRC
+     "100000\n")
+    ;; a trampolined call inside the arguments of another bounce
+    (check-python-output
+     #<<SRC
+(define (count n acc) (trampoline (if (= n 0) acc (count (- n 1) (+ acc 1)))))
+(define (outer n) (trampoline (if (= n 0) 0 (outer (- n (count 5 0))))))
+(print (outer 100000))
+SRC
+     "0\n"))
+
+  (test-case "raise and with-handler"
+    (check-python-output "(with-handler print (raise \"boom\"))" "boom\n")
+    (check-python-output
+     #<<SRC
+(define (boom) (raise 41))
+(define (recover e) (+ e 1))
+(print (with-handler recover (boom)))
+SRC
+     "42\n")
+    (check-python-output
+     #<<SRC
+(define (boom) (raise 1))
+(define (recover e) (quote recovered))
+(define (safe thunk) (with-handler recover (thunk)))
+(print (safe boom))
+SRC
+     "recovered\n")
+    (check-python-output
+     #<<SRC
+(define (recover e) (print "caught"))
+(with-handler recover (int "x"))
+SRC
+     "caught\n")
+    (check-python-output
+     #<<SRC
+(define (bump e) (raise (+ e 1)))
+(define (inner e) (bump e))
+(with-handler print (with-handler inner (raise 1)))
+SRC
+     "2\n"))
+
+  (test-case "an uncaught raise fails the program"
+    (check-python-failure "(raise \"boom\")" #rx"_Raised: boom"))
+
+  (test-case "symbols are interned strings"
+    (check-python-output "(print 'a)" "a\n")
+    (check-python-output "(print (eq? 'a 'a))" "True\n")
+    (check-python-output "(print (= (id 'a) (id 'a)))" "True\n")
+    (check-python-output "(print ((getattr 'a \"upper\")))" "A\n")
+    (check-python-output "(print ((getattr #hash((a . 1)) \"get\") \"a\"))" "1\n"))
+
+  (test-case "quoted data"
+    (check-python-output "(print '(1 2 3))" "[1, 2, 3]\n")
+    (check-python-output "(print '(a \"b\"))" "['a', 'b']\n")
+    (check-python-output "(print '(1 (2 (3))))" "[1, [2, [3]]]\n")
+    (check-python-output "(print '#(1 (2)))" "(1, [2])\n"))
+
+  (test-case "Scheme names become readable Python names"
+    (check-python-output "(define (zero? n) (= n 0))\n(print (zero? 0))" "True\n")
+    (check-python-output "(define (add-one! n) (+ n 1))\n(print (add-one! 41))" "42\n")
+    (check-python-output "(define (pass x) x)\n(print (pass 1))" "1\n"))
+
+  (test-case "the reader is Racket's read"
+    (check-python-output "; a comment\n(print 1) ; and another\n" "1\n")
+    (check-python-output "(print\n  1)\n" "1\n"))
+
+  (test-case "nothing to do"
+    (check-python-source "" "# generated by rkt-pythonize\n")
+    (check-python-source "(begin)\n" "# generated by rkt-pythonize\n")
+    (check-python-source "(trampoline)\n" "# generated by rkt-pythonize\n")
+    (check-python-output "" ""))
+
+  (test-case "malformed programs are rejected"
+    (check-exn exn:fail? (lambda () (transpile "()")))
+    (check-exn exn:fail? (lambda () (transpile "(define 1 2)"))))
+
+  (test-case "generated Python stays readable"
+    (check-python-source
+     "(define x 1)\n(print (+ x 2))\n"
+     #<<PY
+# generated by rkt-pythonize
+x = 1
+print((x + 2))
+
+PY
+     )
+    (check-python-source
+     "(define (fact n) (if (= n 0) 1 (* n (fact (- n 1)))))\n(print (fact 5))\n"
+     #<<PY
+# generated by rkt-pythonize
+def fact(n):
+    if (n == 0):
+        return 1
+    else:
+        return (n * fact((n - 1)))
+
+print(fact(5))
+
+PY
+     ))
+
+  (test-case "the prelude is emitted only where it is used"
+    (check-true (string-contains? (transpile "(print 1)") "print(1)")
+                "no prelude for a program that needs none")
+    (check-false (string-contains? (transpile "(print 1)") "_Tail")
+                 "a program without trampoline gets no trampoline prelude")
+    (check-false (string-contains? (transpile "(print 1)") "Symbol")
+                 "a program without symbols gets no Symbol class")
+    (check-python-contains "(print 'a)" "class Symbol(str):")
+    (check-python-contains "(trampoline (f))" "def _trampoline(value):"))
+
+  (test-case "a trampoline is never added automatically"
+    (check-python-source
+     "(define (f n) (if (= n 0) 0 (f (- n 1))))\n"
+     #<<PY
+# generated by rkt-pythonize
+def f(n):
+    if (n == 0):
+        return 0
+    else:
+        return f((n - 1))
+
+
+PY
+     )
+    (check-python-contains
+     #<<SRC
+(define (count n acc)
+  (trampoline (if (= n 0) acc (count (- n 1) (+ acc 1)))))
+SRC
+     #<<PY
+def count(n, acc):
+    return _trampoline(count_body(n, acc))
+
+def count_body(n, acc):
+    return (acc if (n == 0) else _Tail(lambda: count_body((n - 1), (acc + 1))))
+
+PY
+     )))

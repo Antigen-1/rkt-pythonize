@@ -1,81 +1,103 @@
 #lang racket/base
-(require nanopass/base json racket/contract)
-(provide LB unparse-LB parse-LB render-LB primitives (contract-out (current-primitives (parameter/c (listof symbol?)))))
+
+;; LB: the one and only language of this project.
+;;
+;; The source syntax is Racket's s-expression syntax, so `read` *is* the front
+;; end -- there is no lexer of our own.  The inspiration taken from Clojure is
+;; only the shape of the transpiler: stay small, avoid clever transformations,
+;; and generate Python that a human can still read.  There is no CPS conversion
+;; and no Python runtime library: every line of the generated program comes from
+;; this language.
+;;
+;;   e ::= x                        variable
+;;       | l                        self-evaluating literal
+;;       | 'd                       quoted datum
+;;       | (define x e)             bind a value
+;;       | (define (x x* ...) e)    bind a procedure
+;;       | (trampoline e ...)       trampoline boundary: a tail call inside it
+;;                                  returns a thunk instead of growing the
+;;                                  Python stack
+;;       | (set! x e)               assign
+;;       | (raise e)                raise an exception
+;;       | (with-handler e1 e2)     call e2 with e1 installed as the handler
+;;                                  that `raise` reports to
+;;       | (begin e ...)            sequence
+;;       | (if e1 e2 e3)            conditional
+;;       | (e0 e* ...)              application
+;;
+;;   d ::= int | float | string | boolean | symbol | list | tuple | dict
+;;   l ::= int | float | string | boolean | tuple | dict   (self-evaluating)
+;;
+;;   int     1   -2   +3
+;;   float   1.0   -2.5e3   .5
+;;   string  "a\n"
+;;   boolean #t   #f
+;;   symbol  foo
+;;   list    (1 2 3)
+;;   tuple   #(1 2 3)
+;;   dict    #hash((a . 1) ("b" . 2))
+;;
+;; A program is one expression; a file with several top-level forms is read as
+;; `(begin form ...)`.
+
+(require nanopass/base
+         racket/list)
+
+(provide LB
+         parse-LB
+         unparse-LB
+         variable?
+         literal?
+         datum?)
 
 (define-language LB
   (entry Expr)
   (terminals
-    (primitive (pr))
-    (datum (d)))
+   (variable (x))
+   (literal (l))
+   (datum (d)))
   (Expr (e body)
-    pr
-    'd
-    (ref d)
-    (closure d0 d1 e)
-    (if e0 e1 e2)
-    (e0 e* ...)))
+        x
+        l
+        'd
+        ;; NOTE: the function shape has to be listed before (define x e): both
+        ;; are three elements long, and nanopass does not fall back to the next
+        ;; production once a production has matched the shape of a form but
+        ;; failed one of its terminal checks.
+        (define (x x* ...) e)
+        (define x e)
+        (trampoline body ...)
+        (set! x e)
+        (raise e)
+        (with-handler e1 e2)
+        (begin e ...)
+        (if e1 e2 e3)
+        (e0 e* ...)))
 
-(define primitives '(print
-                     apply make-procedure make-python-procedure vm-apply
-                     dynamic-require
-                     get-attribute set-attribute!
-                     raise error
-                     none
-                     ! @ ? <! length set-box! unbox box cons car cdr null
-                     not
-                     equal? eq?
-                     + - * / quotient modulo negate > < >= <=
-                     is-a? object-type stream-type box-type closure-type exn-type str-type int-type null-type pair-type
-                     ))
+;; A variable is just a symbol: anything that is not a literal or a form is a
+;; name, and the code generator decides later what a name means.
+(define (variable? v)
+  (symbol? v))
 
-(define current-primitives (make-parameter primitives))
+;; Self-evaluating values.  Lists and symbols need a quote, exactly as in
+;; Scheme; tuples and dicts do not.
+(define (literal? v)
+  (or (integer? v)
+      (flonum? v)
+      (string? v)
+      (boolean? v)
+      (and (vector? v) (andmap datum? (vector->list v)))
+      (and (hash? v) (andmap datum? (hash-keys v)) (andmap datum? (hash-values v)))))
 
-(define primitive?
-  (lambda (v)
-    (memq v (current-primitives))))
-(define datum?
-  (lambda (v)
-    (jsexpr? v #:null 'none)))
+;; Everything a quote may produce.
+(define (datum? v)
+  (or (integer? v)
+      (flonum? v)
+      (string? v)
+      (boolean? v)
+      (symbol? v)
+      (and (list? v) (andmap datum? v))
+      (and (vector? v) (andmap datum? (vector->list v)))
+      (and (hash? v) (andmap datum? (hash-keys v)) (andmap datum? (hash-values v)))))
 
 (define-parser parse-LB LB)
-
-(define (render-LB ast)
-  (nanopass-case (LB Expr) ast
-                 (,pr (hasheq 'type "prim"
-                              'name (symbol->string pr)))
-                 (',d (hasheq 'type "datum"
-                              'value `,d))
-                 ((ref ,d) (hasheq 'type "ref"
-                                   'location `,d))
-                 ((closure ,d1 ,d2 ,e)
-                  (hasheq 'type "closure" 
-                          'args d1
-                          'free d2 
-                          'code (render-LB e)))
-                 ((if ,e0 ,e1 ,e2)
-                  (hasheq 'type "if"
-                          'cond (render-LB e0)
-                          'then (render-LB e1)
-                          'otherwise (render-LB e2)))
-                 ((,e0 ,e* ...)
-                  (hasheq 'type "app"
-                          'func (render-LB e0)
-                          'args (map render-LB e*)))
-                 (else (raise-argument-error 'render-LB "A LB expression" ast))))
-
-(module+ test
-  (require rackunit)
-  (check-equal? (render-LB 'dynamic-require)
-                (hasheq 'type "prim"
-                        'name "dynamic-require"))
-  (check-equal? (render-LB (parse-LB ''1))
-                (hasheq 'type "datum"
-                        'value 1))
-  (check-equal? (render-LB (parse-LB ''(1 2 "")))
-                (hasheq 'type "datum"
-                        'value '(1 2 "")))
-  (check-equal? (parameterize ((current-primitives '(a)))
-                  (render-LB (parse-LB 'a)))
-                (hasheq 'type "prim"
-                        'name "a"))
-  )
