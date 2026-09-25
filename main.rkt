@@ -1,120 +1,44 @@
 #lang racket/base
 
-;; rkt-pythonize: a Lisp-to-Python transpiler.
+;; #lang rkt-pythonize: the module is a program, and what it exports is the
+;; Python it compiles to.
 ;;
-;;   raco rkt-pythonize [<file>|-] [-o <output>]
-;;
-;; With no <file>, or with `-', the LB program is read from stdin and the Python
-;; program goes to stdout.  With a <file> the Python program is written next to
-;; it with a `.py' extension, unless `-o' says otherwise.
-;;
-;; The module doubles as the package's main module: `racket main.rkt', the
-;; `rkt-pythonize' launcher, and `raco rkt-pythonize' (see `raco-commands' in
-;; info.rkt) all run the `main' submodule below.
+;; racket/base is re-exported as it is, so define, lambda, if, begin, set!,
+;; quote and define-syntax are Racket's -- a macro written with define-syntax is
+;; an ordinary Racket macro, and hygiene is Racket's.  The bindings this
+;; language adds have an lb: prefix.
 
-(require racket/cmdline
-         racket/file
-         racket/path
-         racket/port
-         "core/base.rkt"
-         "core/python.rkt"
-         "passes/macro.rkt"
-         "passes/make-explicit.rkt"
-         "passes/check-expression.rkt")
+(require (for-syntax racket/base)
+         (for-syntax "core/compile.rkt"))
 
-(provide run-cli
-         ;; the LB language
-         LB
-         parse-LB
-         unparse-LB
-         variable?
-         literal?
-         datum?
-         ;; the surface language: LM -> LE -> LB
-         LM
-         parse-LM
-         unparse-LM
-         macro-signature?
-         expand-macros
-         LE
-         parse-LE
-         unparse-LE
-         make-explicit
-         check-expressions
-         ;; LB -> Python
-         compile-LB
-         python-name
-         transpile)
+;; a free name is a Python global
+(define-syntax lb-top
+  (syntax-rules () [(_ . x) (#%app #%lb-global (quote x))]))
+(define #%lb-global #f)
 
-;; LB source text -> Python source text.  Reading is Racket's own `read`, so
-;; there is no lexer to maintain; a source file with several top-level forms
-;; becomes one `(begin form ...)`, and an empty file an empty `(begin)`.
-;;
-;; The pipeline is: read, check as LM, expand macros into LE, make the bodies of
-;; `with-handler` and `trampoline` explicit, and compile the LB that is left.
-(define (transpile source)
-  (define forms (read-forms source))
-  (define program
-    (cond [(null? forms) '(begin)]
-          [(null? (cdr forms)) (car forms)]
-          [else (cons 'begin forms)]))
-  (compile-LB (check-expressions (make-explicit (expand-macros (parse-LM program))))))
+(define-syntax lb:raise (syntax-rules () [(_ e) (#%app #%lb-raise e)]))
+(define #%lb-raise #f)
 
-(define (read-forms source)
-  (define in (open-input-string source))
-  (let loop ([forms '()])
-    (define form (read in))
-    (if (eof-object? form) (reverse forms) (loop (cons form forms)))))
+;; the module body is the program: compile it, and export the Python
+;; the body has to be expanded before it can be compiled: it is a module body,
+;; so it is expanded in that context, and #%plain-module-begin (when it comes
+;; back) is what holds the forms
+(begin-for-syntax
+ (define (expanded-body stx)
+  (define expanded
+    (local-expand (datum->syntax stx (cons #'#%plain-module-begin (cdr (syntax->list stx))))
+                  'module-begin null))
+  (define parts (syntax->list expanded))
+  (cond [(and parts (eq? (syntax-e (car parts)) '#%plain-module-begin)) (cdr parts)]
+        [else parts])))
 
-(define program-name "rkt-pythonize")
+(define-syntax lb-module-begin
+  (lambda (stx)
+    (define python (compile-body (expanded-body stx)))
+    #`(#%plain-module-begin
+       (#%provide python-code)
+       (define python-code #,python))))
 
-(define usage-text
-  (string-append
-   "usage: raco " program-name " [-o <output>] [<file>|-]\n"
-   "\n"
-   "Transpile an LB program to Python.  With no <file>, or with `-', the LB\n"
-   "program is read from stdin.  The Python program is written next to <file>\n"
-   "with a `.py' extension, or to <output> when that is given (`-' for stdout).\n"
-   "Options come before the input file.\n"))
-
-;; Run the command line `args' and return the exit code.
-(define (run-cli args)
-  (define output #f)
-  (define given '())
-  (command-line
-   #:program (string-append "raco " program-name)
-   #:argv (list->vector args)
-   #:once-each
-   [("-o" "--output") path "write the Python program to <output> (`-' for stdout)"
-                       (set! output path)]
-   #:args files
-   (set! given files))
-  (cond
-    [(> (length given) 1)
-     (eprintf "~a: expected at most one input file, got ~a~n" program-name (length given))
-     (when (ormap (lambda (arg) (regexp-match? #rx"^-" arg)) given)
-       (eprintf "~a: options come before the input file~n" program-name))
-     (eprintf "~a" usage-text)
-     1]
-    [else
-     (define input (if (null? given) "-" (car given)))
-     (define target
-       (cond [output output]
-             [(string=? input "-") "-"]
-             [else (path->string (path-replace-extension (string->path input) #".py"))]))
-     (with-handlers ([exn:fail?
-                      (lambda (e)
-                        (eprintf "~a: ~a~n" program-name (exn-message e))
-                        1)])
-       (define source
-         (if (string=? input "-")
-             (port->string (current-input-port))
-             (file->string input)))
-       (define python (transpile source))
-       (if (string=? target "-")
-           (display python)
-           (display-to-file python (string->path target) #:exists 'replace))
-       0)]))
-
-(module+ main
-  (exit (run-cli (vector->list (current-command-line-arguments)))))
+(provide (except-out (all-from-out racket/base) #%module-begin #%top)
+         (rename-out [lb-module-begin #%module-begin] [lb-top #%top])
+         lb:raise)

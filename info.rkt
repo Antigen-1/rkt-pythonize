@@ -8,6 +8,6 @@
 (define pkg-authors '(zhanghao))
 (define license '(Apache-2.0 OR MIT))
 (define raco-commands
-  (list (list "rkt-pythonize" '(submod "main.rkt" main) "transpile LB to Python" #f)))
+  (list (list "rkt-pythonize" '(submod "cli.rkt" main) "transpile LB to Python" #f)))
 (define racket-launcher-names '("rkt-pythonize"))
-(define racket-launcher-libraries '("main.rkt"))
+(define racket-launcher-libraries '("cli.rkt"))
