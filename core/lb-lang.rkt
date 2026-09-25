@@ -8,12 +8,17 @@
 
 (require (for-syntax racket/base))
 
+;; the body of a program is a body: no runtime submodule, no printing wrapper
+(define-syntax #%module-begin
+  (syntax-rules () [(_ e ...) (#%plain-module-begin e ...)]))
+
 (provide #%module-begin #%app #%datum #%top
          begin set! quote
          define if with-handler trampoline raise defmacro)
 ;; a macro body is Racket code, and it runs a phase up: it gets the names it
 ;; works on forms with
-(provide (for-syntax list cons quote map apply
+(provide (for-syntax #%app #%datum lambda if begin quote
+                     list cons map apply
                      syntax->datum syntax->list datum->syntax))
 
 ;; A name LB does not bind is not an error: it is a Python global, which the
