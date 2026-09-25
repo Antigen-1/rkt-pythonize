@@ -77,6 +77,9 @@
         (with-handler e1 e2)
         (begin e ...)
         (if e1 e2 e3)
+        ;; like every keyword form, `import` has to be listed before the
+        ;; application production, whose shape it shares
+        (import x* ...)
         (e0 e* ...)))
 
 ;; A variable is just a symbol: anything that is not a literal or a form is a

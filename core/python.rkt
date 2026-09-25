@@ -197,6 +197,26 @@
    'begin
    '("def _begin(*values):"
      "    return values[-1]")
+   'object-ref
+   '("def object_ref(obj, key):"
+     "    \"\"\"(object-ref o k): the element at `k`, that is o[k].\"\"\""
+     "    return obj[key]")
+   'object-set!
+   '("def object_set_b(obj, key, value):"
+     "    \"\"\"(object-set! o k v): store `v` at `k`, that is o[k] = v.\"\"\""
+     "    obj[key] = value")
+   'object-get-attr
+   '("def object_get_attr(obj, name):"
+     "    \"\"\"(object-get-attr o name): the attribute, that is getattr(o, name).\"\"\""
+     "    return getattr(obj, name)")
+   'object-set-attr!
+   '("def object_set_attr_b(obj, name, value):"
+     "    \"\"\"(object-set-attr! o name v): set the attribute, that is setattr(o, name, v).\"\"\""
+     "    setattr(obj, name, value)")
+   'object-has-attr?
+   '("def object_has_attr_p(obj, name):"
+     "    \"\"\"(object-has-attr? o name): is the attribute there, that is hasattr(o, name).\"\"\""
+     "    return hasattr(obj, name)")
    'list
    '("_builtin_list = list"
      ""
@@ -316,6 +336,8 @@
      "            return \"eval(apply(%s, [%s]))\" % (_eval_name(head), \", \".join(arguments))"
      "        if len(form) == 3 and head == Symbol(\"set!\"):"
      "            return \"(%s := %s)\" % (_eval_name(form[1]), _eval_value(form[2]))"
+     "        if head == Symbol(\"import\"):"
+     "            raise SyntaxError(\"eval: import needs a statement position\")"
      "    return \"%s(%s)\" % (_eval_value(head), \", \".join(_eval_value(item) for item in form[1:]))"
      ""
      "def _eval_statements(form, lines, target, indent):"
@@ -360,6 +382,11 @@
      "            lines.append(\"%sraise _Raised(%s)\" % (pad, _eval_value(form[1])))"
      "            lines.append(\"%s%s = None\" % (pad, target))"
      "            return"
+     "        if head == Symbol(\"import\"):"
+     "            if len(form) > 1:"
+     "                lines.append(pad + \"import \" + \", \".join(str(item) for item in form[1:]))"
+     "            lines.append(\"%s%s = None\" % (pad, target))"
+     "            return"
      "    lines.append(\"%s%s = %s\" % (pad, target, _eval_value(form)))"
      ""
      "def eval(form):"
@@ -377,15 +404,21 @@
   (hasheq 'gensym '(symbol)
           ;; a form a program builds at run time may call any of the runtime
           ;; functions, so eval brings them all along
-          'eval '(symbol raised begin list apply keyword-apply gensym)))
+          'eval '(symbol raised begin
+                  object-ref object-set! object-get-attr object-set-attr! object-has-attr?
+                  list apply keyword-apply gensym)))
 
 (define prelude-order
-  '(symbol raised trampoline begin list apply keyword-apply gensym eval))
+  '(symbol raised trampoline begin
+    object-ref object-set! object-get-attr object-set-attr! object-has-attr?
+    list apply keyword-apply gensym eval))
 
 ;; The Python-side runtime functions.  A program reaches them as free variables,
 ;; and each one brings its prelude piece along; a program that defines one of
 ;; these names itself simply replaces the runtime function.
-(define runtime-functions '(list apply keyword-apply gensym eval))
+(define runtime-functions
+  '(object-ref object-set! object-get-attr object-set-attr! object-has-attr?
+    list apply keyword-apply gensym eval))
 
 
 
@@ -399,20 +432,28 @@
 ;; temps:    counter for temporaries
 ;; scopes:   innermost first; each scope is a mutable list of the names it
 ;;           introduces.  A function scope carries its name, the module scope #f.
+;; imports:  the module names the program imports, in order, first one first
 ;; trampolines: the procedures of the program whose body uses `trampoline`
 ;; driving?: #f while emitting such a body: the enclosing driver forces the
 ;;           bounces, so the body itself must not start one
-(struct context (lines indent features temps scopes trampolines driving?) #:mutable)
+(struct context (lines indent features temps scopes trampolines driving? imports)
+  #:mutable)
 
 ;; One lexical scope: its name (#f for the module scope) and the names it
 ;; introduces.  Mutable, because names are added while the body is emitted.
 (struct scope (name names) #:mutable)
 
 (define (make-context trampolines)
-  (context '() 0 '() 0 (list (scope #f '())) trampolines #t))
+  (context '() 0 '() 0 (list (scope #f '())) trampolines #t '()))
 
 (define (emit! ctx text)
   (set-context-lines! ctx (cons (cons (context-indent ctx) text) (context-lines ctx))))
+
+;; An `import` is an import statement, so it belongs at the top of the program
+;; whatever position the source wrote it in.
+(define (emit-import! ctx name)
+  (unless (member name (context-imports ctx))
+    (set-context-imports! ctx (append (context-imports ctx) (list name)))))
 
 (define (emit-lines! ctx lines)
   (for ([line (in-list lines)])
@@ -604,6 +645,9 @@
              (python-expr ctx e2 bounce?)
              (python-expr ctx e1)
              (python-expr ctx e3 bounce?)))
+    ((import ,x* ...)
+     (for ([name (in-list x*)]) (emit-import! ctx (symbol->string name)))
+     "None")
     ((begin ,e* ...)
      (cond [(null? e*) (need! ctx 'begin) "_begin()"]
            [(null? (cdr e*)) (python-expr ctx (car e*) bounce?)]
@@ -676,6 +720,8 @@
      (emit-block! ctx (lambda () (emit! ctx (format "~a~a(_e.value)" keyword handler-text))))
      (emit! ctx "except Exception as _e:")
      (emit-block! ctx (lambda () (emit! ctx (format "~a~a(_e)" keyword handler-text)))))
+    ((import ,x* ...)
+     (for ([name (in-list x*)]) (emit-import! ctx (symbol->string name))))
     ((begin ,e* ...)
      (emit-sequence! ctx e* tail?))
     ((trampoline ,body ...)
@@ -772,6 +818,8 @@
   (define ctx (make-context (trampoline-procedures program)))
   (emit-stmt! ctx program #f)
   (define program-lines (render-lines (reverse (context-lines ctx))))
+  (define imports
+    (for/list ([name (in-list (context-imports ctx))]) (format "import ~a" name)))
   (define prelude
     (append*
      (for/list ([feature (in-list prelude-order)]
@@ -779,6 +827,7 @@
        (append (hash-ref prelude-pieces feature) (list "")))))
   (string-append
    (string-join (append (list "# generated by rkt-pythonize")
+                        (if (null? imports) '() (cons "" imports))
                         (if (null? prelude) '() (cons "" prelude))
                         program-lines)
                 "\n")

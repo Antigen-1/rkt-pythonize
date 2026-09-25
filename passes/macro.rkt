@@ -122,6 +122,7 @@
            (list 'with-handler (expand-form handler macros #f) (expand-form body macros #f))])]
        [(eq? op 'trampoline) (cons 'trampoline (expand-forms (cdr e) macros #f))]
        [(eq? op 'if) (cons 'if (expand-forms (cdr e) macros #f))]
+       [(eq? op 'import) e]
        [(eq? op 'begin) (cons 'begin (expand-forms (cdr e) macros top?))]
        [else (cons (expand-form op macros #f) (expand-forms (cdr e) macros #f))])]
     [else e]))

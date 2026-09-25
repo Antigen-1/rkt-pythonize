@@ -27,6 +27,9 @@
   (check-equal? (round-trip '(with-handler h (f))) '(with-handler h (f)))
   (check-equal? (round-trip '(begin 1 2 3)) '(begin 1 2 3))
   (check-equal? (round-trip '(if #t 1 2)) '(if #t 1 2))
+  (check-equal? (round-trip '(import os)) '(import os))
+  (check-equal? (round-trip '(import os.path sys)) '(import os.path sys))
+  (check-equal? (round-trip '(import)) '(import))
   (check-equal? (round-trip '(f x y)) '(f x y))
   (check-equal? (round-trip '(f)) '(f))
   (check-equal? (round-trip 'x) 'x)
@@ -72,6 +75,7 @@
   (check-exn exn:fail? (lambda () (parse-LB '(define (f . 1) 2))))
   (check-exn exn:fail? (lambda () (parse-LB '(define (1 . rest) 2))))
   (check-exn exn:fail? (lambda () (parse-LB '(set! 1 2))))
+  (check-exn exn:fail? (lambda () (parse-LB '(import "os"))))
   (check-equal? (round-trip '(begin)) '(begin))
   (check-equal? (round-trip '(trampoline)) '(trampoline))
 

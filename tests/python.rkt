@@ -62,7 +62,7 @@ SRC
   (test-case "a dotted parameter list collects the remaining arguments"
     (check-python-output
      #<<SRC
-(define (f a . rest) (+ a ((getattr rest "__len__"))))
+(define (f a . rest) (+ a ((object-get-attr rest "__len__"))))
 (print (f 1 2 3))
 SRC
      "3\n")
@@ -82,7 +82,7 @@ SRC
      "10\n")
     (check-python-output
      #<<SRC
-(define (add-marker . xs) (begin ((getattr xs "append") 99) xs))
+(define (add-marker . xs) (begin ((object-get-attr xs "append") 99) xs))
 (print (add-marker 1 2))
 SRC
      "[1, 2, 99]\n")
@@ -202,8 +202,8 @@ SRC
     (check-python-output "(print 'a)" "a\n")
     (check-python-output "(print (eq? 'a 'a))" "True\n")
     (check-python-output "(print (= (id 'a) (id 'a)))" "True\n")
-    (check-python-output "(print ((getattr 'a \"upper\")))" "A\n")
-    (check-python-output "(print ((getattr #hash((a . 1)) \"get\") \"a\"))" "1\n"))
+    (check-python-output "(print ((object-get-attr 'a \"upper\")))" "A\n")
+    (check-python-output "(print ((object-get-attr #hash((a . 1)) \"get\") \"a\"))" "1\n"))
 
   (test-case "quoted data"
     (check-python-output "(print '(1 2 3))" "[1, 2, 3]\n")
@@ -216,13 +216,59 @@ SRC
     ;; on forms: there is no cons, car or cdr anywhere in the runtime
     (check-python-output
      #<<SRC
-(print ((getattr '(1 2 3) "__len__")))
-(print ((getattr '(1 2 3) "__getitem__") 0))
+(print ((object-get-attr '(1 2 3) "__len__")))
+(print (object-ref '(1 2 3) 0))
 (print (+ '(1 2) '(3)))
-(begin (define xs '(1 2 3)) ((getattr xs "append") 4) (print xs))
+(begin (define xs '(1 2 3)) ((object-get-attr xs "append") 4) (print xs))
 SRC
      "3\n1\n[1, 2, 3]\n[1, 2, 3, 4]\n")
     (check-python-failure "(print (car '(1 2)))" #rx"NameError: name 'car' is not defined"))
+
+  (test-case "objects, attributes and modules"
+    (check-python-output
+     #<<SRC
+(print (object-ref '(10 20 30) 1))
+(begin (define xs (list 1 2 3)) (object-set! xs 1 99) (print xs))
+(begin (define table #hash((a . 1))) (object-set! table "b" 2) (print (object-ref table "a")) (print table))
+SRC
+     "20\n[1, 99, 3]\n1\n{'a': 1, 'b': 2}\n")
+    (check-python-output
+     #<<SRC
+(print ((object-get-attr "abc" "upper")))
+(print (object-has-attr? "abc" "upper"))
+(print (object-has-attr? "abc" "nope"))
+SRC
+     "ABC\nTrue\nFalse\n")
+    (check-python-output
+     #<<SRC
+(import types)
+(define point ((object-get-attr types "SimpleNamespace")))
+(object-set-attr! point "x" 1)
+(object-set-attr! point "y" 2)
+(print (+ (object-get-attr point "x") (object-get-attr point "y")))
+SRC
+     "3\n"))
+
+  (test-case "import is an import statement"
+    (check-python-output
+     #<<SRC
+(import math)
+(print ((object-get-attr math "sqrt") 16))
+SRC
+     "4.0\n")
+    ;; it is a top-level import wherever the source writes it, and once only
+    (check-equal?
+     (for/list ([line (in-list (string-split
+                                (transpile "(define (f) (begin (import math) 1))\n(import math)\n")
+                                "\n"))]
+                #:when (string=? line "import math"))
+       line)
+     '("import math"))
+    (check-python-output "(import)\n(print 1)" "1\n")
+    ;; a form the program builds at run time can import too
+    (check-python-output
+     "(print (eval (quote (begin (import math) ((object-get-attr math \"ceil\") 1.2)))))"
+     "2\n"))
 
   (test-case "Scheme names become readable Python names"
     (check-python-output "(define (zero? n) (= n 0))\n(print (zero? 0))" "True\n")

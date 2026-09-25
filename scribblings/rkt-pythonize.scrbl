@@ -32,6 +32,8 @@ runtime library.
 @item{Self-evaluating literals, and quoted data with interned symbols}
 @item{Free variables as Python globals, so the Python world stays reachable}
 @item{Macros: @racket[defmacro] over forms, in LM (see @seclink["Macros"])}
+@item{Python modules with @racket[import], and Python objects with
+      @racket[object-ref] and friends (see @seclink["Macros"])}
 @item{Readable output: one Python function per LB procedure, no CPS conversion,
       and only the prelude pieces a program actually uses}
 ]
@@ -64,6 +66,9 @@ Each form is compiled to the Python that reads best for it:
       appears in a value position}
 @item{@racket[(if e1 e2 e3)] is a conditional}
 @item{@racket[(e0 e* ...)] calls @racket[e0]}
+@item{@racket[(import x* ...)] imports Python modules: each name becomes a
+      top-level @tt{import} in the generated program, wherever the source wrote
+      it}
 @item{@racket[(defmacro (f x* ...) e)], and @racket[(defmacro (f x* ... . rest) e)],
       define a macro -- see @seclink["Macros"]}
 @item{A quoted datum @racket['d] becomes a Python value: a symbol becomes an
@@ -206,9 +211,9 @@ and can expand into a call of another macro.
 
 @subsection{Runtime functions}
 
-These five are Python-side functions, written by the prelude when a program
-mentions them; they are what makes macros work, and they are there for any
-program:
+The prelude writes these Python-side functions for a program that mentions
+them, and they are there for any program.  The first five are what makes macros
+work:
 
 @itemlist[
 @item{@racket[(list x* ...)] makes a list -- the same thing a quoted list is.}
@@ -222,6 +227,14 @@ program:
       language of LB, through the same tables the transpiler uses -- and runs it
       in the program's globals.}
 ]
+
+The rest reach into Python objects without spelling out reflection:
+@racket[(object-ref o k)] is @tt{o[k]}, @racket[(object-set! o k v)] is
+@tt{o[k] = v}, @racket[(object-get-attr o name)] is @tt{getattr(o, name)} --
+methods included, so @racket[((object-get-attr "abc" "upper"))] is
+@tt{"abc".upper()} -- @racket[(object-set-attr! o name v)] is
+@tt{setattr(o, name, v)}, and @racket[(object-has-attr? o name)] is
+@tt{hasattr(o, name)}.
 
 Things worth knowing:
 @itemlist[
@@ -293,6 +306,11 @@ Things worth knowing:
 @section{Changelog}
 
 @itemlist[
+@item{1.1.0 -- @racket[(import x* ...)] for Python modules, and
+      @racket[object-ref], @racket[object-set!], @racket[object-get-attr],
+      @racket[object-set-attr!] and @racket[object-has-attr?] for Python
+      objects, so reaching into one no longer means spelling out @tt{getattr}
+      and a dunder name.}
 @item{1.0.0 -- a Lisp: definitions, with a rest parameter; @racket[defmacro] and
       quoted data to build forms with; @racket[trampoline], @racket[set!],
       @racket[raise] and @racket[with-handler]; interned symbols; free variables

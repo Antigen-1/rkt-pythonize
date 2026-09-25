@@ -20,6 +20,7 @@ e ::= x                        variable
     | (with-handler e1 e2)     run e2 with e1 as the handler of `raise`
     | (begin e ...)            sequence
     | (if e1 e2 e3)            conditional
+    | (import x* ...)          import Python modules
     | (e0 e* ...)              application
 
 d ::= int | float | string | boolean | symbol | list | tuple | dict
@@ -111,6 +112,22 @@ program: `list` (a list, the same thing a quoted list already is), `apply`,
 through the same tables the transpiler uses, and runs it in the program's
 globals).  There is no automatic hygiene, `defmacro` belongs at the top level,
 and the runtime function names belong to the runtime.
+
+Reaching into Python is done with five more, so nothing needs to spell out
+reflection:
+
+```racket
+(import math)                                   ; import math
+(print ((object-get-attr math "sqrt") 16))      ; 4.0
+(object-set! xs 1 99)                           ; xs[1] = 99
+(object-ref xs 0)                               ; xs[0]
+(object-get-attr "abc" "upper")                 ; "abc".upper
+(object-set-attr! point "x" 1)                  ; setattr(point, "x", 1)
+(object-has-attr? xs "append")                  ; hasattr(xs, "append")
+```
+
+`(import x* ...)` becomes a top-level `import` in the generated program,
+wherever the source writes it, once per module.
 
 Design notes:
 

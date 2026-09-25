@@ -32,7 +32,7 @@
      "(print (eval (quote (begin (define (double n) (* n 2)) (double 21)))))"
      "42\n")
     (check-python-output
-     "(begin (define xs (list 1 2 3)) (eval (quote (begin ((getattr xs \"append\") 4)))) (print xs))"
+     "(begin (define xs (list 1 2 3)) (eval (quote (begin ((object-get-attr xs \"append\") 4)))) (print xs))"
      "[1, 2, 3, 4]\n")
     ;; a program that defines its own function still reaches it from eval
     (check-python-output
@@ -57,7 +57,7 @@ SRC
     ;; and it can look at the form it was given
     (check-python-output
      #<<SRC
-(defmacro (first-form x) (list 'quote ((getattr x "__getitem__") 0)))
+(defmacro (first-form x) (list 'quote (object-ref x 0)))
 (print (first-form (alpha beta)))
 SRC
      "alpha\n"))
