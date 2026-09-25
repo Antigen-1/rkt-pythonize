@@ -18,7 +18,6 @@
 
 (define runtime-pieces
   (for/hash ([p (in-list '((list . list) (apply . apply) (keyword-apply . keyword-apply)
-                           (void . void)
                            (object-ref . object-ref) (object-set! . object-set!)
                            (object-get-attr . object-get-attr)
                            (object-set-attr! . object-set-attr!)
@@ -147,7 +146,8 @@
         (define args (cddr parts))
         (define core (callee-symbol f))
         (define f-name (and (identifier? f) (munged (syntax-e f))))
-        (cond [(eq? core 'not) (format "(not ~a)" (expr (car args)))]
+        (cond [(eq? core 'void) (if (null? args) "None" (begin-expr args #f))]
+              [(eq? core 'not) (format "(not ~a)" (expr (car args)))]
               [(eq? core '#%lb-global)
                (define name (global-expr (global-name (car args))))
                (if (null? (cdr args)) name
@@ -229,9 +229,6 @@
 
 (define pieces
   (hasheq
-   'void (list "def void():"
-               "    \"\"\"(void): what the Racket library returns where it has no value.\"\"\""
-               "    return None")
    'begin (list "def _begin(*values):" "    return values[-1]")
    'raise (list "class _Raised(Exception):" "    def __init__(self, value):"
                 "        super().__init__(value)" "        self.value = value" ""
@@ -257,7 +254,7 @@
    'object-has-attr? (list "def object_has_attr_p(obj, name):" "    return hasattr(obj, name)")))
 
 (define order
-  '(void begin raise trampoline with-handler list apply keyword-apply
+  '(begin raise trampoline with-handler list apply keyword-apply
     object-ref object-set! object-get-attr object-set-attr! object-has-attr?))
 
 (define needed (make-hash))
