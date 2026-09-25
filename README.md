@@ -152,6 +152,11 @@ Design notes:
 * `if` uses LB's truth, which is Lisp's: only `#f` is false, so `0`, `0.0`,
   `""`, `'()` and Python's `None` are all true.  (`and`, `or` and `not` are the
   Python operators, and keep Python's truth.)
+* `define`, `import`, `set!` and `raise` are statements, and belong where a
+  statement goes: the top level, a `begin`, a function body, a branch of a
+  statement `if`.  They can be written in a value position -- the value is
+  `None` -- but the statement is then emitted before the expression that asked
+  for it, so `(print (if c (set! x 1) 0))` sets `x` whether `c` holds or not.
 * `raise` builds an `_Raised` exception and `with-handler` catches `_Raised`
   (handing the raised value to the handler) as well as any other Python
   exception (handing the exception object to it).

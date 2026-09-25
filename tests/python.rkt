@@ -59,6 +59,30 @@
 SRC
      "120\n"))
 
+  (test-case "define and import are statements"
+    ;; in a statement position a define is a statement like any other, so the
+    ;; branch of a statement if guards it
+    (check-python-output
+     #<<SRC
+(define x 0)
+(if #f (define x 1) #f)
+(print x)
+(if #t (define x 2) (define x 3))
+(print x)
+SRC
+     "0\n2\n")
+    ;; an empty branch is a Python syntax error without its pass
+    (check-python-output "(begin (if #f 1 2) (print \"after\"))" "after\n")
+    ;; a body that is a define, or an import, answers None
+    (check-python-output "(define (f) (define n 1))\n(print (f))" "None\n")
+    (check-python-output "(define (f) (import math))\n(print (f))" "None\n")
+    (check-python-contains "(define (f) (import math))\n(print (f))" "def f():\n    pass")
+    ;; in a value position both answer None, and the statement is emitted ahead
+    ;; of the expression that wanted the value
+    (check-python-output "(print (define x 1))" "None\n")
+    (check-python-output "(print (import math))" "None\n")
+    (check-python-output "(define m (import math))\n(print m)" "None\n"))
+
   (test-case "a dotted parameter list collects the remaining arguments"
     (check-python-output
      #<<SRC

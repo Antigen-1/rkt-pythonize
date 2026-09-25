@@ -508,11 +508,13 @@
   (set-context-lines! ctx before)
   (reverse (take after (- (length after) (length before)))))
 
+;; An empty block is a Python syntax error, so it gets a `pass` -- and the
+;; `pass` belongs to the block, at the indentation its lines would have had.
 (define (emit-block! ctx thunk)
   (define lines (block ctx thunk))
-  (if (null? lines)
-      (emit! ctx "pass")
-      (emit-lines! ctx lines)))
+  (emit-lines! ctx (if (null? lines)
+                       (block ctx (lambda () (emit! ctx "pass")))
+                       lines)))
 
 ;; scopes
 (define (scope-push! ctx name)
@@ -805,7 +807,9 @@
   (define body-lines (block ctx body-thunk))
   (scope-pop! ctx)
   (emit! ctx (format "def ~a(~a):" (python-name name) params-text))
-  (if (null? body-lines) (emit! ctx "pass") (emit-lines! ctx body-lines))
+  (emit-lines! ctx (if (null? body-lines)
+                       (block ctx (lambda () (emit! ctx "pass")))
+                       body-lines))
   (emit! ctx ""))
 
 (define (emit-function! ctx signature body)

@@ -72,6 +72,11 @@ Each form is compiled to the Python that reads best for it:
       @racket[or] and @racket[not] are the Python operators, and keep Python's
       truth.)}
 @item{@racket[(e0 e* ...)] calls @racket[e0]}
+@item{@racket[define] and @racket[import] are statements: they are what a
+      function body, a @racket[begin] and the branch of a statement @racket[if]
+      are made of, and both answer @tt{None}.  Written in a value position the
+      statement is emitted before the expression that wanted the value, so put
+      them where a statement goes}
 @item{@racket[(import spec* ...)] imports Python modules: a top-level
       @tt{import} in the generated program, wherever the source wrote it, once
       per spec.  A name is a module, @racket[(as mod alias)] is a module under
