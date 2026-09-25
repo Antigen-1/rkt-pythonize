@@ -12,7 +12,8 @@
 (define infix
   (for/hash ([p (in-list '((+ . "+") (- . "-") (* . "*") (/ . "/")
                            (= . "==") (< . "<") (> . ">") (<= . "<=") (>= . ">=")
-                           (equal? . "==")))])
+                           (equal? . "==")
+                           (quotient . "//") (modulo . "%") (expt . "**") (eq? . "is")))])
     (values (car p) (cdr p))))
 
 (define runtime-pieces
@@ -122,7 +123,8 @@
      (case (head stx)
        [(quote) (py-datum (syntax->datum (cadr parts)))]
        [(if) (format "(~a if ~a else ~a)"
-                     (expr (caddr parts) bounce?) (expr (cadr parts)) (expr (cadddr parts) bounce?))]
+                     (expr (caddr parts) bounce?) (lisp-true (cadr parts))
+                     (expr (cadddr parts) bounce?))]
        [(begin) (begin-expr (cdr parts) bounce?)]
        [(#%expression) (expr (cadr parts) bounce?)]
        [(let-values)
@@ -145,7 +147,8 @@
         (define args (cddr parts))
         (define core (callee-symbol f))
         (define f-name (and (identifier? f) (munged (syntax-e f))))
-        (cond [(eq? core '#%lb-global)
+        (cond [(eq? core 'not) (format "(not ~a)" (expr (car args)))]
+              [(eq? core '#%lb-global)
                (define name (global-expr (global-name (car args))))
                (if (null? (cdr args)) name
                    (format "~a(~a)" name (string-join (map expr (cdr args)) ", ")))]
@@ -162,7 +165,11 @@
                (if bounce? (begin (need 'trampoline) (format "lambda: ~a" call)) call)])]
        [else (error 'compile "cannot compile: ~a" (syntax->datum stx))])]))
 
+;; only #f is false: 0, "" and '() are true, as they are in Racket
+(define (lisp-true stx) (format "~a is not False" (expr stx)))
+
 (define (begin-expr bodies bounce?)
+  (need 'begin)
   (format "_begin(~a)"
           (string-join (for/list ([e (in-list bodies)] [i (in-naturals)])
                          (expr e (and bounce? (= i (- (length bodies) 1)))))
@@ -177,7 +184,7 @@
   (define parts (syntax->list s))
   (case (head s)
     ;; compile-time only: the expander has done its work
-    [(define-syntaxes define-syntax begin-for-syntax) ""]
+    [(define-syntaxes define-syntax begin-for-syntax #%require #%provide) ""]
     [(define-values)
      (define name (syntax-e (car (syntax->list (cadr parts)))))
      (define rhs (caddr parts))
@@ -216,7 +223,7 @@
     [(if)
      (define then-text (statement (caddr parts)))
      (define else-text (statement (cadddr parts)))
-     (string-append "if " (expr (cadr parts)) ":\n" (indented then-text) "\n"
+     (string-append "if " (lisp-true (cadr parts)) ":\n" (indented then-text) "\n"
                     "else:\n" (indented else-text) "\n")]
     [else (expr s)]))
 
