@@ -8,7 +8,7 @@ end; the language is called **LB** and lives in `core/base.rkt`:
 ```racket
 s ::= e                        an expression, for its value or its effect
     | (define x e)             bind a value
-    | (define (x x* ...) e)    bind a procedure
+    | (define (x x* ...) e)    bind a procedure (LE allows several bodies)
     | (define (x x* ... . rest) e)
     |                          bind a procedure; the rest parameter collects the
     |                          remaining arguments into a list
@@ -46,9 +46,10 @@ handler runs where it stands, and a value position guards it.
 (define sqrt (object-get-attr (import-module "math") "sqrt"))
 ```
 
-LE, in `passes/make-explicit.rkt`, is LB with any number of bodies in
-`with-handler` and `trampoline`; the pass wraps the extra ones in the `begin`
-the core language has room for.  LM, in `passes/macro.rkt`, is LE plus macros:
+LE, in `passes/make-explicit.rkt`, is LB with any number of bodies in a
+definition, in `with-handler` and in `trampoline`; the pass wraps the extra ones
+in the `begin` the core language has room for.  `passes/check-expression.rkt`
+then refuses a statement written where an expression belongs.  LM, in `passes/macro.rkt`, is LE plus macros:
 
 ```racket
 (defmacro (name param ...) e)           fixed arity
@@ -185,7 +186,8 @@ Layout:
 ```
 main.rkt                     the package module, the pipeline, and the command line entry point
 core/base.rkt                the LB language definition (grammar, predicates, parser)
-passes/make-explicit.rkt     LE (LB with multi-body trampoline and with-handler) -> LB
+passes/make-explicit.rkt     LE (LB with multi-body definitions, trampoline, with-handler) -> LB
+passes/check-expression.rkt  refuse a statement where an expression belongs
 passes/macro.rkt             LM (LE plus defmacro) -> LE
 core/python.rkt              LB -> Python
 scribblings/rkt-pythonize.scrbl  the manual

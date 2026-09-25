@@ -108,11 +108,8 @@
         ;; the signature -- dot and all -- is the signature of the procedure
         (list 'define (cadr e) (expand-form (caddr e) macros #f))]
        [(eq? op 'define)
-        (match e
-          [(list 'define (cons name params) body)
-           (list 'define (cons name params) (expand-form body macros #f))]
-          [(list 'define name body)
-           (list 'define name (expand-form body macros #f))])]
+        ;; the binding is not code, so it is left as it is; the bodies are
+        (cons 'define (cons (cadr e) (expand-forms (cddr e) macros #f)))]
        [(eq? op 'set!)
         (match e [(list 'set! name value) (list 'set! name (expand-form value macros #f))])]
        [(eq? op 'raise)

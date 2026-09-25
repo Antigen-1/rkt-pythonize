@@ -9,6 +9,7 @@
 ;;
 ;;   (trampoline e1 e2)      -> (trampoline (begin e1 e2))
 ;;   (with-handler h e1 e2)  -> (with-handler h (begin e1 e2))
+;;   (define (f x) e1 e2)    -> (define (f x) (begin e1 e2))
 ;;
 ;; One body is left alone, and a `(trampoline)` with no body at all is not the
 ;; form: it is an application of a variable of that name.
@@ -24,6 +25,9 @@
 
 (define-language LE
   (extends LB)
+  (Stmt (s body)
+        (- (define b body))
+        (+ (define b body s* ...)))
   (Expr (e)
         (- (with-handler e1 e2)
            (trampoline e1))
@@ -40,6 +44,7 @@
   (cond
     ;; a quoted datum is data, not code: nothing inside one is rewritten
     [(and (pair? e) (eq? (car e) 'quote)) e]
+    [(and (pair? e) (eq? (car e) 'define)) (explicit-define e)]
     [(and (pair? e) (eq? (car e) 'trampoline)) (explicit-trampoline e)]
     [(and (pair? e) (eq? (car e) 'with-handler)) (explicit-with-handler e)]
     [else (explicit-all e)]))
@@ -47,6 +52,14 @@
 (define (explicit-all e)
   (cond [(pair? e) (cons (explicit (car e)) (explicit-all (cdr e)))]
         [else e]))
+
+;; A definition binds one name and may hold several bodies; a value definition
+;; with several of them is left for the compiler to refuse, since only a
+;; procedure has a body to sequence.
+(define (explicit-define e)
+  (define bodies (map explicit (cddr e)))
+  (cond [(null? (cdr bodies)) (list 'define (cadr e) (car bodies))]
+        [else (list 'define (cadr e) (cons 'begin bodies))]))
 
 (define (explicit-trampoline e)
   (define bodies (map explicit (cdr e)))

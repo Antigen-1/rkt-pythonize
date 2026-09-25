@@ -709,9 +709,9 @@
     (',d (python-constant ctx d))
     ((,e0 ,e* ...)
      (or (and (symbol? e0) (operator-expression ctx e0 e*))
-         (let* ([callee (cond [(and bounce? (symbol? e0)) (bounce-name ctx e0)]
-                              [(symbol? e0) (check-callee ctx e0) (python-expr ctx e0)]
-                              [else (python-expr ctx e0)])]
+         (let* ([callee (if (and bounce? (symbol? e0))
+                            (bounce-name ctx e0)
+                            (python-expr ctx e0))]
                 [call (format "~a(~a)"
                               callee
                               (string-join (map (lambda (a) (python-expr ctx a)) e*) ", "))])
@@ -755,26 +755,6 @@
     (else
      (error 'compile-LB "a statement cannot be used as an expression: ~a" e))))
 
-;; A form whose head is a statement keyword, where an expression was wanted.
-;; The grammar keeps statements out of expression positions, but nanopass reads
-;; one happily and the shape of `(define x e)` is the shape of a call, so this is
-;; where it is refused, with a message that says what happened.  A program that
-;; binds one of these names itself is left alone.
-(define (check-callee ctx name)
-  (when (and (not (bound-name? ctx name))
-             (memq name '(define set! import trampoline with-handler)))
-    (case name
-      [(import)
-       (error 'compile-LB
-              "import is not a form: (import-module \"name\") is how a module becomes a value")]
-      [(trampoline with-handler)
-       (error 'compile-LB
-              "~a takes one body here: LE, the language a source is written in, takes any number"
-              name)]
-      [else (error 'compile-LB "a statement cannot be used as an expression: ~a" name)])))
-
-;; LB's truth: only #f is false, so 0, 0.0, "", '() and None are all true.
-;; A condition that is already a constant needs no test of its own.
 (define (python-condition ctx e)
   (nanopass-case (LB Expr) e
     (,l (if (eq? l #f) "False" "True"))

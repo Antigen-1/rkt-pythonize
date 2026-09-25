@@ -87,8 +87,8 @@ Each form is compiled to the Python that reads best for it:
 ]
 
 @item{@bold{LE}, the language a source is written in (see
-      @filepath{passes/make-explicit.rkt}), gives @racket[with-handler] and
-      @racket[trampoline] any number of bodies, and the @racket[make-explicit]
+      @filepath{passes/make-explicit.rkt}), gives a definition,
+      @racket[with-handler] and @racket[trampoline] any number of bodies, and the @racket[make-explicit]
       pass wraps them in the @racket[begin] the core language has room for.
       LM, @filepath{passes/macro.rkt}, is LE plus @racket[defmacro]}
 @item{@racket[(defmacro (f x* ...) e)], and @racket[(defmacro (f x* ... . rest) e)],
@@ -350,6 +350,11 @@ Things worth knowing:
 @section{Changelog}
 
 @itemlist[
+@item{1.3.2 -- a definition may have several bodies, like @racket[with-handler]
+      and @racket[trampoline], and LE's pass makes them a @racket[begin].  A
+      statement written where an expression belongs is refused by a pass of its
+      own, @filepath{passes/check-expression.rkt}, which reports what was
+      written instead of leaving it to the compiler.}
 @item{1.3.1 -- statements and expressions are different things, in the grammar
       and in the compiler: a statement in an expression position is refused
       instead of being emitted somewhere it does not belong, so @racket[if] and

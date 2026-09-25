@@ -19,7 +19,8 @@
          "core/base.rkt"
          "core/python.rkt"
          "passes/macro.rkt"
-         "passes/make-explicit.rkt")
+         "passes/make-explicit.rkt"
+         "passes/check-expression.rkt")
 
 (provide run-cli
          ;; the LB language
@@ -39,6 +40,7 @@
          parse-LE
          unparse-LE
          make-explicit
+         check-expressions
          ;; LB -> Python
          compile-LB
          python-name
@@ -56,7 +58,7 @@
     (cond [(null? forms) '(begin)]
           [(null? (cdr forms)) (car forms)]
           [else (cons 'begin forms)]))
-  (compile-LB (make-explicit (expand-macros (parse-LM program)))))
+  (compile-LB (check-expressions (make-explicit (expand-macros (parse-LM program))))))
 
 (define (read-forms source)
   (define in (open-input-string source))

@@ -31,6 +31,21 @@
     (check-equal? (explicit '(print (quote (trampoline 1 2))))
                   '(print (quote (trampoline 1 2)))))
 
+  (test-case "a definition may have several bodies too"
+    (check-equal? (explicit '(define (f x) 1)) '(define (f x) 1))
+    (check-equal? (explicit '(define (f x) 1 2)) '(define (f x) (begin 1 2)))
+    (check-equal? (explicit '(define (f) (define n 1) (set! n 2) n))
+                  '(define (f) (begin (define n 1) (set! n 2) n)))
+    (check-equal? (explicit '(define x 1)) '(define x 1))
+    (check-python-output
+     #<<SRC
+(define (f x) (print "a") (print "b") (+ x 1))
+(print (f 41))
+SRC
+     "a\nb\n42\n")
+    ;; a value takes one expression, and says so
+    (check-exn exn:fail? (lambda () (transpile "(define x 1 2)\n"))))
+
   (test-case "a form with no body at all is an application"
     (check-equal? (explicit '(trampoline)) '(trampoline))
     (check-equal? (explicit '(with-handler)) '(with-handler)))
@@ -38,8 +53,8 @@
   (test-case "LB itself takes one body"
     ;; in LB the shape of (trampoline 1 2) is the shape of a call, and the
     ;; compiler says what it is
-    (check-exn exn:fail? (lambda () (compile-LB (parse-LB '(trampoline 1 2)))))
-    (check-exn exn:fail? (lambda () (compile-LB (parse-LB '(with-handler h 1 2)))))
+    (check-exn exn:fail? (lambda () (check-expressions (parse-LB '(trampoline 1 2)))))
+    (check-exn exn:fail? (lambda () (check-expressions (parse-LB '(with-handler h 1 2)))))
     (check-equal? (unparse-LB (parse-LB '(trampoline 1))) '(trampoline 1))
     ;; the surface language takes any number of bodies
     (check-python-output "(print (trampoline 1 2))" "2\n"))
