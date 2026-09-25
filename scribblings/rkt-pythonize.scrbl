@@ -293,7 +293,11 @@ Things worth knowing:
 @section{Changelog}
 
 @itemlist[
+@item{1.0.0 -- a Lisp: definitions, with a rest parameter; @racket[defmacro] and
+      quoted data to build forms with; @racket[trampoline], @racket[set!],
+      @racket[raise] and @racket[with-handler]; interned symbols; free variables
+      as Python globals; and the Python-side @racket[list], @racket[apply],
+      @racket[keyword-apply], @racket[gensym] and @racket[eval].}
 @item{0.0.1 -- the rewrite: LB, defined with @seclink["Syntax"]{nanopass}, and a
-      Python backend; a command line entry point; LM and @racket[defmacro],
-      expanded by the generated program.}
+      Python backend; a command line entry point.}
 ]
