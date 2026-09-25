@@ -7,8 +7,10 @@
 ;;
 ;;   (define x e)            x = e                       (module level)
 ;;   (define (f x* ...) e)   def f(x* ...): ...          (module level)
-;;   (trampoline e ...)      tail calls inside become _Tail thunks, driven by
-;;                           _trampoline(...) -- only where the source says
+;;   (trampoline e ...)      the body returns a 0-arity procedure, and
+;;                           _trampoline(...) calls it while the value is one;
+;;                           a tail call inside the body is what returns the
+;;                           procedure.  Only where the source says
 ;;                           `trampoline`, never automatically
 ;;   (set! x e)              x = e                       (nonlocal when needed)
 ;;   (raise e)               raise _Raised(e)
@@ -42,7 +44,7 @@
 
 ;; Names the generated prelude defines: a user variable with one of these names
 ;; gets a suffix.
-(define prelude-names '("Symbol" "_Raised" "_Tail" "_trampoline" "_begin"))
+(define prelude-names '("Symbol" "_Raised" "_trampoline" "_begin"))
 
 (define character-names
   (hasheq #\- "_" #\? "_p" #\! "_b" #\< "_lt" #\> "_gt" #\= "_eq" #\/ "_slash"
@@ -184,15 +186,11 @@
      "        super().__init__(value)"
      "        self.value = value")
    'trampoline
-   '("class _Tail:"
-     "    \"\"\"The thunk of a tail call inside an explicit (trampoline ...).\"\"\""
-     "    __slots__ = (\"call\",)"
-     "    def __init__(self, call):"
-     "        self.call = call"
-     ""
-     "def _trampoline(value):"
-     "    while isinstance(value, _Tail):"
-     "        value = value.call()"
+   '("def _trampoline(value):"
+     "    \"\"\"(trampoline e ...): call the procedure the body returns, and keep"
+     "    calling while the value is one.\"\"\""
+     "    while callable(value):"
+     "        value = value()"
      "    return value")
    'begin
    '("def _begin(*values):"
@@ -609,10 +607,13 @@
 (define (trampoline-body-name sym)
   (string->symbol (format "~a_body" (python-name sym))))
 
+;; What a bounce calls: the body of a trampolined procedure, so that the bounce
+;; does not re-enter its driver, and in every other case the name itself -- as a
+;; reference, so that a runtime function among them brings its prelude piece.
 (define (bounce-name ctx sym)
   (if (memq sym (context-trampolines ctx))
       (trampoline-body-name sym)
-      (python-name sym)))
+      (variable-expression ctx sym)))
 
 ;; The `nonlocal` names of a function: names it assigns that belong to an
 ;; enclosing function, minus the ones it defines itself.
@@ -629,8 +630,9 @@
 
 
 ;; The arguments are never rendered in bounce position: an operator is a strict
-;; primitive, so `(+ (f x) (g y))` has to compute both calls, not build thunks
-;; for them (that would add two `_Tail` objects together).
+;; primitive, so `(+ (f x) (g y))` has to compute both calls, not build the
+;; procedures a trampoline would call for them (that would try to add two
+;; functions together).
 (define (operator-expression ctx name args)
   (define op (hash-ref infix-operators name #f))
   (define (arg a) (python-expr ctx a))
@@ -667,8 +669,10 @@
                               callee
                               (string-join (map (lambda (a) (python-expr ctx a)) e*) ", "))])
            (cond [bounce?
+                  ;; a tail call inside a trampoline is the 0-arity procedure
+                  ;; the trampoline will call
                   (need! ctx 'trampoline)
-                  (format "_Tail(lambda: ~a)" call)]
+                  (format "lambda: ~a" call)]
                  [else call]))))
     ((if ,e1 ,e2 ,e3)
      (format "(~a if ~a else ~a)"

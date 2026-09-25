@@ -14,7 +14,7 @@ e ::= x                        variable
     | (define (x x* ... . rest) e)
     |                          bind a procedure; the rest parameter collects the
     |                          remaining arguments into a list
-    | (trampoline e ...)       trampoline boundary for tail calls
+    | (trampoline e ...)       call what the body returns while it is a procedure
     | (set! x e)               assign
     | (raise e)                raise an exception
     | (with-handler e1 e2)     run e2 with e1 as the handler of `raise`
@@ -143,7 +143,7 @@ Design notes:
   syntax: few and simple passes, no CPS conversion, and generated Python that
   stays readable.
 * There is no Python runtime library.  The generated program carries only the
-  prelude pieces it uses (`Symbol`, `_Raised`, `_Tail`/`_trampoline`, `_begin`).
+  prelude pieces it uses (`Symbol`, `_Raised`, `_trampoline`, `_begin`).
 * A free variable is a Python global, so the Python world is reachable under its
   own names (`(print (len "abc"))`), while Scheme names are munged into readable
   Python identifiers (`even?` becomes `even_p`, `set-car!` becomes `set_car_b`).
@@ -156,9 +156,13 @@ Design notes:
   (handing the raised value to the handler) as well as any other Python
   exception (handing the exception object to it).
 * Tail calls are explicit: `(trampoline ...)` is the only place where a tail
-  call becomes a thunk.  A procedure that uses `trampoline` is emitted twice --
-  `f` drives the trampoline, `f_body` holds its bounces -- so a bounce never
-  re-enters a driver and a deep loop stays flat however the procedure is called.
+  call becomes a procedure instead of being called.  The trampoline calls the
+  value of its body, and keeps calling while that value is a procedure: a body
+  that ends in a tail call returns a 0-arity procedure and so loops, and a body
+  that returns anything else is done.  A procedure that uses `trampoline` is
+  emitted twice -- `f` drives, `f_body` is what the bounces call -- so a bounce
+  never re-enters a driver and a deep loop stays flat however the procedure is
+  called.
 * `set!` of an enclosing local becomes `nonlocal`, which is worked out from the
   source before a procedure body is emitted.
 * LB is defined with

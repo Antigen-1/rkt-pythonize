@@ -55,8 +55,10 @@ Each form is compiled to the Python that reads best for it:
 @item{@racket[(define (f x* ... . rest) e)] binds a procedure whose rest
       parameter collects the remaining arguments into a list:
       @tt{def f(x* ..., *rest):}}
-@item{@racket[(trampoline e ...)] marks the tail calls of @racket[e] as bounces
-      of a trampoline; it is never added for you}
+@item{@racket[(trampoline e ...)] calls the value of its body while that value
+      is a procedure, and answers the first value that is not one.  A tail call
+      of the body is what returns the procedure, so a loop written with
+      @racket[trampoline] does not grow the stack; it is never added for you}
 @item{@racket[(set! x e)] assigns, and becomes a Python @tt{nonlocal} when
       @racket[x] belongs to an enclosing procedure}
 @item{@racket[(raise e)] raises @racket[e], which may be any LB value}
@@ -119,10 +121,11 @@ A procedure, a conditional, and a call:
 
 @(verbatim (transpile "(define (fact n) (if (= n 0) 1 (* n (fact (- n 1)))))\n(print (fact 5))\n"))
 
-A tail call bounces only where the source says @racket[trampoline].  Such a
-procedure is emitted twice -- the public name drives the trampoline and a
-@tt{_body} name holds the bounces -- so a deep loop stays flat however the
-procedure is called:
+A tail call becomes a procedure only where the source says
+@racket[trampoline]: the body returns a 0-arity procedure, the trampoline calls
+it, and it keeps calling while the value is one.  Such a procedure is emitted
+twice -- the public name drives the trampoline and a @tt{_body} name holds the
+bounces -- so a deep loop stays flat however the procedure is called:
 
 @racketblock[
 (define (count n acc)
@@ -318,6 +321,11 @@ Things worth knowing:
 @section{Changelog}
 
 @itemlist[
+@item{1.2.1 -- @racket[trampoline] is the driver the manual describes: it calls
+      the procedure its body returns, and keeps calling while the value is a
+      procedure, so a body that ends in a tail call loops and anything else is
+      the answer.  A bounce is a plain 0-arity procedure now, not a value of the
+      runtime's own.}
 @item{1.2.0 -- @racket[if] is Lisp's truth: only @racket[#f] is false, so
       @racket[0], @racket[0.0], @racket[""] and @racket['()] are true; and
       @racket[(import spec* ...)] takes @racket[(as mod alias)] and
