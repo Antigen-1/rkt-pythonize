@@ -127,6 +127,20 @@
     (check-equal? status #t (format "python failed: ~a" err))
     (check-equal? out "10\nTrue\n"))
 
+  (test-case "when, unless, cond and and are Python statements"
+    (define-values (status out err)
+      (run-python
+       (python-code-of
+        (string-append "#lang rkt-pythonize\n"
+                       "(define x 0)\n"
+                       "(when #t (set! x 5))\n"
+                       "(unless #f (set! x (+ x 1)))\n"
+                       "(if (> x 5) (set! x (* x 2)) (set! x 0))\n"
+                       "(print (cond [(= x 12) \"twelve\"] [else \"other\"]))\n"
+                       "(print (and #t x))\n"))))
+    (check-equal? status #t (format "python failed: ~a" err))
+    (check-equal? out "twelve\n12\n"))
+
   (test-case "a quote is data, and a symbol in data is refused"
     (define-values (status out err)
       (run-python (python-code-of "#lang rkt-pythonize\n(print (quote (1 \"a\" #t)))\n")))

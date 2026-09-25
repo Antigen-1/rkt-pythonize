@@ -17,6 +17,7 @@
 
 (define runtime-pieces
   (for/hash ([p (in-list '((list . list) (apply . apply) (keyword-apply . keyword-apply)
+                           (void . void)
                            (object-ref . object-ref) (object-set! . object-set!)
                            (object-get-attr . object-get-attr)
                            (object-set-attr! . object-set-attr!)
@@ -122,10 +123,13 @@
        [(quote) (py-datum (syntax->datum (cadr parts)))]
        [(if) (format "(~a if ~a else ~a)"
                      (expr (caddr parts) bounce?) (expr (cadr parts)) (expr (cadddr parts) bounce?))]
-       [(begin) (format "_begin(~a)"
-                        (string-join (for/list ([e (in-list (cdr parts))] [i (in-naturals)])
-                                       (expr e (and bounce? (= i (- (length parts) 2)))))
-                                     ", "))]
+       [(begin) (begin-expr (cdr parts) bounce?)]
+       [(#%expression) (expr (cadr parts) bounce?)]
+       [(let-values)
+        (define bodies (if (null? (syntax->list (cadr parts)))
+                           (cddr parts)
+                           (error 'compile "let-values has to have no bindings")))
+        (begin-expr bodies bounce?)]
        [(#%lb-global)
         (define name (global-expr (global-name (cadr parts))))
         (define more (cddr parts))
@@ -157,6 +161,17 @@
                                         (string-join (map expr args) ", ")))
                (if bounce? (begin (need 'trampoline) (format "lambda: ~a" call)) call)])]
        [else (error 'compile "cannot compile: ~a" (syntax->datum stx))])]))
+
+(define (begin-expr bodies bounce?)
+  (format "_begin(~a)"
+          (string-join (for/list ([e (in-list bodies)] [i (in-naturals)])
+                         (expr e (and bounce? (= i (- (length bodies) 1)))))
+                       ", ")))
+
+(define (indented text)
+  (string-join (for/list ([line (in-list (string-split text "\n"))])
+                 (string-append "    " line))
+               "\n"))
 
 (define (statement s)
   (define parts (syntax->list s))
@@ -193,10 +208,23 @@
            [else (format "~a = ~a" (munged name) (expr rhs))])]
     [(set!) (format "~a = ~a" (munged (syntax-e (cadr parts))) (expr (caddr parts)))]
     [(begin) (string-join (map statement (cdr parts)) "\n")]
+    [(#%expression) (statement (cadr parts))]
+    [(let-values)
+     (if (null? (syntax->list (cadr parts)))
+         (string-join (map statement (cddr parts)) "\n")
+         (error 'compile "let-values has to have no bindings"))]
+    [(if)
+     (define then-text (statement (caddr parts)))
+     (define else-text (statement (cadddr parts)))
+     (string-append "if " (expr (cadr parts)) ":\n" (indented then-text) "\n"
+                    "else:\n" (indented else-text) "\n")]
     [else (expr s)]))
 
 (define pieces
   (hasheq
+   'void (list "def void():"
+               "    \"\"\"(void): what the Racket library returns where it has no value.\"\"\""
+               "    return None")
    'begin (list "def _begin(*values):" "    return values[-1]")
    'raise (list "class _Raised(Exception):" "    def __init__(self, value):"
                 "        super().__init__(value)" "        self.value = value" ""
@@ -222,7 +250,7 @@
    'object-has-attr? (list "def object_has_attr_p(obj, name):" "    return hasattr(obj, name)")))
 
 (define order
-  '(begin raise trampoline with-handler list apply keyword-apply
+  '(void begin raise trampoline with-handler list apply keyword-apply
     object-ref object-set! object-get-attr object-set-attr! object-has-attr?))
 
 (define needed (make-hash))
