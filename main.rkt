@@ -1,52 +1,24 @@
 #lang racket/base
 
-;; #lang rkt-pythonize: the module is a program, and what it exports is the
-;; Python it compiles to.
+;; rkt-pythonize is a library, and its one export is #%python-code:
 ;;
-;; racket/base is re-exported as it is, so define, lambda, if, begin, set!,
-;; quote and define-syntax are Racket's -- a macro written with define-syntax is
-;; an ordinary Racket macro, and hygiene is Racket's.  The bindings this
-;; language adds have an lb: prefix.
+;;   (#%python-code <LE form> ...)
+;;
+;; is the Python those forms compile to.  The compilation happens at expansion
+;; time, so the value of the macro is the rendered source, a string.
+;;
+;; LE is the language core/compile.rkt describes: Racket's s-expression syntax
+;; with statements and expressions apart, procedures only through define with
+;; any number of bodies, raise, with-handler and trampoline, and quoted data
+;; without symbols.  There are no macros and no eval inside it, so a Racket
+;; macro that writes LE is how a program grows sugar.
 
 (require (for-syntax racket/base)
          (for-syntax "core/compile.rkt"))
 
-;; a free name is a Python global
-(define-syntax lb-top
-  (syntax-rules () [(_ . x) (#%app #%lb-global (quote x))]))
-(define #%lb-global #f)
-
-(define-syntax lb:raise (syntax-rules () [(_ e) (#%app #%lb-raise e)]))
-(define #%lb-raise #f)
-
-(define-syntax lb:trampoline (syntax-rules () [(_ e) (#%app #%lb-trampoline e)]))
-(define #%lb-trampoline #f)
-
-(define-syntax lb:with-handler (syntax-rules () [(_ h e) (#%app #%lb-with-handler h e)]))
-(define #%lb-with-handler #f)
-
-;; the module body is the program: compile it, and export the Python
-;; the body has to be expanded before it can be compiled: it is a module body,
-;; so it is expanded in that context, and #%plain-module-begin (when it comes
-;; back) is what holds the forms
-(begin-for-syntax
- (define (expanded-body stx)
-  (define expanded
-    (local-expand (datum->syntax stx (cons #'#%plain-module-begin (cdr (syntax->list stx))))
-                  'module-begin null))
-  (define parts (syntax->list expanded))
-  (cond [(and parts (eq? (syntax-e (car parts)) '#%plain-module-begin)) (cdr parts)]
-        [else parts])))
-
-(define-syntax lb-module-begin
+(define-syntax #%python-code
   (lambda (stx)
-    (define python (compile-body (expanded-body stx)))
-    #`(#%plain-module-begin
-       (#%provide python-code)
-       (define python-code #,python))))
+    (define forms (cdr (syntax->list stx)))
+    (datum->syntax stx (compile-program forms))))
 
-(provide (except-out (all-from-out racket/base) #%module-begin #%top)
-         (rename-out [lb-module-begin #%module-begin] [lb-top #%top])
-         lb:raise
-         lb:trampoline
-         lb:with-handler)
+(provide #%python-code)
