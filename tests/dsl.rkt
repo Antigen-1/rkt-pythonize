@@ -115,6 +115,18 @@
     (check-equal? status #t (format "python failed: ~a" err))
     (check-equal? out "[1, 2, 3]\n2\n20\n"))
 
+  (test-case "a name with - ? or ! is munged to match its runtime piece"
+    (define-values (status out err)
+      (run-python
+       (python-code-of
+        (string-append "#lang rkt-pythonize\n"
+                       "(define xs (list 1 2 3))\n"
+                       "(object-set! xs 0 10)\n"
+                       "(print (object-ref xs 0))\n"
+                       "(print (object-has-attr? xs \"append\"))\n"))))
+    (check-equal? status #t (format "python failed: ~a" err))
+    (check-equal? out "10\nTrue\n"))
+
   (test-case "a quote is data, and a symbol in data is refused"
     (define-values (status out err)
       (run-python (python-code-of "#lang rkt-pythonize\n(print (quote (1 \"a\" #t)))\n")))
