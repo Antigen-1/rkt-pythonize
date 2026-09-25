@@ -229,7 +229,7 @@
      (format "_name_reserved = ~a" (python-set (name-reserved-entries)))
      (format "_infix_operators = ~a" (python-table (infix-operator-entries)))
      ;; The macro table the macro pass fills in; `{}` when a program has none.
-     "_macro_signatures = {}"
+     "_macros = []"
      ""
      "def _eval_name(value):"
      "    \"\"\"The Python name of a symbol: the munging `python-name` does.\"\"\""
@@ -309,13 +309,10 @@
      "            return \"(not %s)\" % _eval_value(form[1])"
      "        if len(form) == 2 and head == Symbol(\"negate\"):"
      "            return \"(- %s)\" % _eval_value(form[1])"
-     "        if head in _macro_signatures:"
+     "        if head in _macros:"
      "            # a macro call: hand the argument forms to the macro, then compile"
      "            # whatever form it returns"
-     "            arity, has_rest = _macro_signatures[head]"
      "            arguments = [_eval_literal(item) for item in form[1:]]"
-     "            if has_rest:"
-     "                arguments = arguments[:arity] + [\"[%s]\" % \", \".join(arguments[arity:])]"
      "            return \"eval(apply(%s, [%s]))\" % (_eval_name(head), \", \".join(arguments))"
      "        if len(form) == 3 and head == Symbol(\"set!\"):"
      "            return \"(%s := %s)\" % (_eval_name(form[1]), _eval_value(form[2]))"
@@ -482,8 +479,7 @@
 (define (assigned-names e)
   (nanopass-case (LB Expr) e
     ((set! ,x ,e1) (cons x (assigned-names e1)))
-    ((define ,x ,e1) (assigned-names e1))
-    ((define (,x ,x* ...) ,e1) (assigned-names e1))
+    ((define ,b ,e1) (assigned-names e1))
     ((raise ,e1) (assigned-names e1))
     ((with-handler ,e1 ,e2) (append (assigned-names e1) (assigned-names e2)))
     ((begin ,e* ...) (append* (map assigned-names e*)))
@@ -494,8 +490,7 @@
 
 (define (defined-names e)
   (nanopass-case (LB Expr) e
-    ((define (,x ,x* ...) ,e1) (list x))
-    ((define ,x ,e1) (list x))
+    ((define ,b ,e1) (list (binding-name b)))
     ((with-handler ,e1 ,e2) (defined-names e2))
     ((begin ,e* ...) (append* (map defined-names e*)))
     ((trampoline ,body ...) (append* (map defined-names body)))
@@ -511,8 +506,7 @@
 (define (uses-trampoline? e)
   (nanopass-case (LB Expr) e
     ((trampoline ,body ...) #t)
-    ((define ,x ,e1) #f)
-    ((define (,x ,x* ...) ,e1) #f)
+    ((define ,b ,e1) #f)
     ((raise ,e1) (uses-trampoline? e1))
     ((with-handler ,e1 ,e2) (uses-trampoline? e2))
     ((begin ,e* ...) (ormap uses-trampoline? e*))
@@ -525,9 +519,9 @@
 ;; can call its body instead of its public entry.
 (define (trampoline-procedures e)
   (nanopass-case (LB Expr) e
-    ((define (,x ,x* ...) ,e1)
-     (append (if (uses-trampoline? e1) (list x) '()) (trampoline-procedures e1)))
-    ((define ,x ,e1) (trampoline-procedures e1))
+    ((define ,b ,e1)
+     (append (if (and (pair? b) (uses-trampoline? e1)) (list (binding-name b)) '())
+             (trampoline-procedures e1)))
     ((trampoline ,body ...) (append* (map trampoline-procedures body)))
     ((raise ,e1) (trampoline-procedures e1))
     ((with-handler ,e1 ,e2) (append (trampoline-procedures e1) (trampoline-procedures e2)))
@@ -633,10 +627,7 @@
     ((set! ,x ,e1)
      (emit! ctx (format "~a = ~a" (python-name x) (python-expr ctx e1)))
      "None")
-    ((define (,x ,x* ...) ,e1)
-     (emit-stmt! ctx e)
-     "None")
-    ((define ,x ,e1)
+    ((define ,b ,e1)
      (emit-stmt! ctx e)
      "None")
     ((raise ,e1)
@@ -665,11 +656,11 @@
 
 (define (emit-stmt! ctx e [tail? #f])
   (nanopass-case (LB Expr) e
-    ((define (,x ,x* ...) ,e1)
-     (emit-function! ctx x x* e1))
-    ((define ,x ,e1)
-     (scope-define! ctx x)
-     (emit! ctx (format "~a = ~a" (python-name x) (python-expr ctx e1))))
+    ((define ,b ,e1)
+     (cond [(pair? b) (emit-function! ctx b e1)]
+           [else
+            (scope-define! ctx b)
+            (emit! ctx (format "~a = ~a" (python-name b) (python-expr ctx e1)))]))
     ((set! ,x ,e1)
      (emit! ctx (format "~a = ~a" (python-name x) (python-expr ctx e1))))
     ((raise ,e1)
@@ -721,39 +712,51 @@
     (emit-stmt! ctx e (and tail? (= i (sub1 count))))))
 
 ;; Emit `def name(params):` followed by whatever `body-thunk` emits.
-(define (emit-def! ctx name params body-thunk)
+(define (emit-def! ctx name params-text body-thunk)
   (scope-push! ctx name)
-  (for ([p (in-list params)]) (scope-define! ctx p))
   (define body-lines (block ctx body-thunk))
   (scope-pop! ctx)
-  (emit! ctx (format "def ~a(~a):" (python-name name) (string-join (map python-name params) ", ")))
+  (emit! ctx (format "def ~a(~a):" (python-name name) params-text))
   (if (null? body-lines) (emit! ctx "pass") (emit-lines! ctx body-lines))
   (emit! ctx ""))
 
-(define (emit-function! ctx name params body)
-  (define params-text (string-join (map python-name params) ", "))
+(define (emit-function! ctx signature body)
+  (define name (binding-name signature))
+  (define-values (params rest) (binding-parts signature))
+  ;; `def f(a, *rest)` and the call that forwards to a trampoline body are the
+  ;; same text, so one string does for both.
+  (define params-text
+    (string-append (string-join (map python-name params) ", ")
+                   (if rest
+                       (format "~a*~a" (if (null? params) "" ", ") (python-name rest))
+                       "")))
   (define (emit-body! trampoline-body?)
     (define saved (context-driving? ctx))
     (set-context-driving?! ctx (not trampoline-body?))
     (define nonlocals (nonlocal-names ctx body))
     (when (pair? nonlocals)
       (emit! ctx (format "nonlocal ~a" (string-join (map python-name nonlocals) ", "))))
+    ;; a rest parameter is a Python tuple: make it the list an LB list is
+    (when rest
+      (emit! ctx (format "~a = [*~a]" (python-name rest) (python-name rest))))
     (emit-stmt! ctx body #t)
     (set-context-driving?! ctx saved))
   (scope-define! ctx name)
+  (for ([param (in-list params)]) (scope-define! ctx param))
+  (when rest (scope-define! ctx rest))
   (cond
     [(uses-trampoline? body)
      ;; `name` drives the trampoline and `name_body` holds its bounces, so that
      ;; a bounce never re-enters a driver and a deep loop stays flat.
      (define body-name (trampoline-body-name name))
      (scope-define! ctx body-name)
-     (emit-def! ctx name params
+     (emit-def! ctx name params-text
                 (lambda ()
                   (need! ctx 'trampoline)
                   (emit! ctx (format "return _trampoline(~a(~a))"
                                      (python-name body-name) params-text))))
-     (emit-def! ctx body-name params (lambda () (emit-body! #t)))]
-    [else (emit-def! ctx name params (lambda () (emit-body! #f)))]))
+     (emit-def! ctx body-name params-text (lambda () (emit-body! #t)))]
+    [else (emit-def! ctx name params-text (lambda () (emit-body! #f)))]))
 
 ;; ---------------------------------------------------------------------------
 ;; Program

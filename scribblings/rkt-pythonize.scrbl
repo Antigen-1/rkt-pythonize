@@ -50,6 +50,9 @@ Each form is compiled to the Python that reads best for it:
 @itemlist[
 @item{@racket[(define x e)] binds a value: @tt{x = e}}
 @item{@racket[(define (f x* ...) e)] binds a procedure: @tt{def f(x* ...): ...}}
+@item{@racket[(define (f x* ... . rest) e)] binds a procedure whose rest
+      parameter collects the remaining arguments into a list:
+      @tt{def f(x* ..., *rest):}}
 @item{@racket[(trampoline e ...)] marks the tail calls of @racket[e] as bounces
       of a trampoline; it is never added for you}
 @item{@racket[(set! x e)] assigns, and becomes a Python @tt{nonlocal} when
@@ -163,8 +166,10 @@ builds forms with the Python operations it already has:
 (defmacro (unless c . body) (list 'if c #f (+ '(begin) body)))
 ]
 
-A dotted parameter collects the remaining forms into a list, so @racket[unless]
-above can take any number of body forms.  This one introduces a binding, and
+A macro signature is a procedure signature, so @racket[defmacro] and
+@racket[define] take the same two shapes.  A dotted parameter collects the
+remaining forms into a list, so @racket[unless] above can take any number of
+body forms, and the macro procedure it becomes has the same parameter list.  This one introduces a binding, and
 asks @racket[gensym] for a name nothing else can capture:
 
 @racketblock[

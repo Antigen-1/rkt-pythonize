@@ -11,6 +11,9 @@ e ::= x                        variable
     | 'd                       quoted datum
     | (define x e)             bind a value
     | (define (x x* ...) e)    bind a procedure
+    | (define (x x* ... . rest) e)
+    |                          bind a procedure; the rest parameter collects the
+    |                          remaining arguments into a list
     | (trampoline e ...)       trampoline boundary for tail calls
     | (set! x e)               assign
     | (raise e)                raise an exception
@@ -28,6 +31,23 @@ LM, in `passes/macro.rkt`, is LB plus macros:
 ```racket
 (defmacro (name param ...) e)           fixed arity
 (defmacro (name param ... . rest) e)    the rest of the forms become a list
+```
+
+A macro signature is a procedure signature, so `defmacro` and `define` take the
+same two shapes, and a macro becomes a procedure with the same parameter list:
+
+```racket
+(defmacro (unless c . body) (list 'if c #f (+ '(begin) body)))
+(print (unless #f 1 2))
+```
+
+```python
+_macros = [Symbol("unless")]
+def unless(c, *body):
+    body = [*body]
+    return list(Symbol("if"), c, False, ([Symbol("begin")] + body))
+
+print(eval([Symbol("unless"), False, 1, 2]))
 ```
 
 `core/python.rkt` turns LB into Python; the package module `rkt-pythonize`

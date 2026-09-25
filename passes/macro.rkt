@@ -7,6 +7,9 @@
 ;;   (defmacro (name param ...) e)          fixed arity
 ;;   (defmacro (name param ... . rest) e)   the rest of the forms become a list
 ;;
+;; A macro signature is a procedure signature: LB's `define` takes the same two
+;; shapes, so the definition of the macro procedure is the same definition.
+;;
 ;; A macro is an ordinary procedure: its parameters are bound to the
 ;; *unevaluated* argument forms, and it returns a new form.  A form is data --
 ;; a symbol is an interned `Symbol`, a list is a Python list -- so a macro body
@@ -40,15 +43,9 @@
 ;; The language
 ;; ---------------------------------------------------------------------------
 
-;; A macro signature: (name param ...) or (name param ... . rest).  Every
-;; parameter is a variable, and the dotted tail is the rest parameter.
-(define (macro-signature? v)
-  (and (pair? v)
-       (variable? (car v))
-       (let loop ([params (cdr v)])
-         (cond [(null? params) #t]
-               [(pair? params) (and (variable? (car params)) (loop (cdr params)))]
-               [else (variable? params)]))))
+;; A macro signature is the signature of a procedure: (name param ...) or
+;; (name param ... . rest).
+(define macro-signature? procedure-signature?)
 
 (define-language LM
   (extends LB)
@@ -60,36 +57,10 @@
 (define-parser parse-LM LM)
 
 ;; ---------------------------------------------------------------------------
-;; Signatures
-;; ---------------------------------------------------------------------------
-
-(define (signature-name signature)
-  (car signature))
-
-;; The parameters of the macro procedure (the rest parameter is an ordinary
-;; parameter: the call site packs the remaining forms into a list) and whether
-;; there is one.
-(define (signature-info signature)
-  (let loop ([rest (cdr signature)] [params '()])
-    (cond [(null? rest) (values (reverse params) #f)]
-          [(pair? rest) (loop (cdr rest) (cons (car rest) params))]
-          [else (values (reverse (cons rest params)) #t)])))
-
-;; What the runtime table records for a macro: how many argument forms it takes
-;; before the rest list, and whether it has one.
-(define (signature-arity signature)
-  (define-values (params has-rest?) (signature-info signature))
-  (if has-rest? (sub1 (length params)) (length params)))
-
-(define (signature-has-rest? signature)
-  (define-values (params has-rest?) (signature-info signature))
-  has-rest?)
-
-;; ---------------------------------------------------------------------------
 ;; The pass
 ;; ---------------------------------------------------------------------------
 
-(define registry-name '_macro_signatures)
+(define registry-name '_macros)
 
 ;; Expand the macros of an LM program, giving an LB program.
 (define (expand-macros program)
@@ -101,13 +72,10 @@
 ;; chain -- because the macro procedure has to be a global for the generated
 ;; program's `eval` to find it by name.
 (define (macro-definitions program)
-  (for/fold ([macros (hash)]) ([form (in-list (top-level-forms program))])
-    (match form
-      [(list 'defmacro signature _)
-       (hash-set macros
-                 (signature-name signature)
-                 (vector (signature-arity signature) (signature-has-rest? signature)))]
-      [_ macros])))
+  (sort (for/list ([form (in-list (top-level-forms program))]
+                   #:when (match form [(list 'defmacro _ _) #t] [_ #f]))
+          (car (cadr form)))
+        (lambda (a b) (string<? (symbol->string a) (symbol->string b)))))
 
 (define (top-level-forms program)
   (match program
@@ -116,12 +84,12 @@
 
 (define (expand-program program macros)
   (define body (expand-form program macros #t))
-  (if (zero? (hash-count macros))
+  (if (null? macros)
       body
       ;; the table comes first: a macro call at the top level runs immediately
       (list 'begin (macro-registry macros) body)))
 
-;; The table the Python-side `eval` reads: macro name -> #(arity has-rest?).
+;; The table the Python-side `eval` reads: the names of the program's macros.
 (define (macro-registry macros)
   (list 'define registry-name (list 'quote macros)))
 
@@ -132,12 +100,12 @@
      (cond
        ;; a quoted datum is data, never code: nothing inside it is expanded
        [(eq? op 'quote) e]
-       [(and (symbol? op) (hash-has-key? macros op)) (expand-macro-call e)]
+       [(and (symbol? op) (memq op macros)) (expand-macro-call e)]
        [(eq? op 'defmacro)
         (unless top?
           (error 'expand-macros "defmacro is only allowed at the top level: ~a" e))
-        (define-values (params has-rest?) (signature-info (cadr e)))
-        (list 'define (cons (signature-name (cadr e)) params) (expand-form (caddr e) macros #f))]
+        ;; the signature -- dot and all -- is the signature of the procedure
+        (list 'define (cadr e) (expand-form (caddr e) macros #f))]
        [(eq? op 'define)
         (match e
           [(list 'define (cons name params) body)

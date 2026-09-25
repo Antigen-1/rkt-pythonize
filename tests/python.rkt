@@ -59,6 +59,41 @@
 SRC
      "120\n"))
 
+  (test-case "a dotted parameter list collects the remaining arguments"
+    (check-python-output
+     #<<SRC
+(define (f a . rest) (+ a ((getattr rest "__len__"))))
+(print (f 1 2 3))
+SRC
+     "3\n")
+    (check-python-output
+     #<<SRC
+(define (all . args) args)
+(print (all))
+(print (all 1 2 3))
+SRC
+     "[]\n[1, 2, 3]\n")
+    ;; the rest parameter is a list, so the list operations work on it
+    (check-python-output
+     #<<SRC
+(define (total-of . numbers) (sum numbers))
+(print (total-of 1 2 3 4))
+SRC
+     "10\n")
+    (check-python-output
+     #<<SRC
+(define (add-marker . xs) (begin ((getattr xs "append") 99) xs))
+(print (add-marker 1 2))
+SRC
+     "[1, 2, 99]\n")
+    ;; and it can be passed on with apply
+    (check-python-output
+     #<<SRC
+(define (f a . rest) (apply list a rest))
+(print (f 1 2 3))
+SRC
+     "[1, 2, 3]\n"))
+
   (test-case "closures and set! of an enclosing local"
     (check-python-output
      #<<SRC

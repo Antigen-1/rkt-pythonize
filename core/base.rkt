@@ -48,24 +48,29 @@
          unparse-LB
          variable?
          literal?
-         datum?)
+         datum?
+         procedure-signature?
+         binding?
+         binding-name
+         binding-parts)
 
 (define-language LB
   (entry Expr)
   (terminals
    (variable (x))
    (literal (l))
-   (datum (d)))
+   (datum (d))
+   (binding (b)))
   (Expr (e body)
         x
         l
         'd
-        ;; NOTE: the function shape has to be listed before (define x e): both
-        ;; are three elements long, and nanopass does not fall back to the next
-        ;; production once a production has matched the shape of a form but
-        ;; failed one of its terminal checks.
-        (define (x x* ...) e)
-        (define x e)
+        ;; `define` has one shape, not two.  A binding is either a variable or
+        ;; the signature of a procedure, and one terminal covers both: two
+        ;; three-element productions would not work, because nanopass does not
+        ;; fall back to the next production when a form matches the shape of one
+        ;; but fails its terminal check.
+        (define b e)
         (trampoline body ...)
         (set! x e)
         (raise e)
@@ -88,6 +93,32 @@
       (boolean? v)
       (and (vector? v) (andmap datum? (vector->list v)))
       (and (hash? v) (andmap datum? (hash-keys v)) (andmap datum? (hash-values v)))))
+
+;; The signature of a procedure: (name param ...) or (name param ... . rest).
+;; The rest parameter collects the remaining arguments into a list.
+(define (procedure-signature? v)
+  (and (pair? v)
+       (variable? (car v))
+       (let loop ([params (cdr v)])
+         (cond [(null? params) #t]
+               [(pair? params) (and (variable? (car params)) (loop (cdr params)))]
+               [else (variable? params)]))))
+
+;; What a `define` binds: a variable, or a procedure signature.
+(define (binding? v)
+  (or (variable? v) (procedure-signature? v)))
+
+;; The name a binding binds.
+(define (binding-name b)
+  (if (pair? b) (car b) b))
+
+;; The parameters of a procedure binding, as (values fixed rest): the parameters
+;; before the dot, and the rest parameter or #f.
+(define (binding-parts b)
+  (let loop ([params (cdr b)] [fixed '()])
+    (cond [(null? params) (values (reverse fixed) #f)]
+          [(pair? params) (loop (cdr params) (cons (car params) fixed))]
+          [else (values (reverse fixed) params)])))
 
 ;; Everything a quote may produce.
 (define (datum? v)
