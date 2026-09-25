@@ -19,6 +19,12 @@
 (define-syntax lb:raise (syntax-rules () [(_ e) (#%app #%lb-raise e)]))
 (define #%lb-raise #f)
 
+(define-syntax lb:trampoline (syntax-rules () [(_ e) (#%app #%lb-trampoline e)]))
+(define #%lb-trampoline #f)
+
+(define-syntax lb:with-handler (syntax-rules () [(_ h e) (#%app #%lb-with-handler h e)]))
+(define #%lb-with-handler #f)
+
 ;; the module body is the program: compile it, and export the Python
 ;; the body has to be expanded before it can be compiled: it is a module body,
 ;; so it is expanded in that context, and #%plain-module-begin (when it comes
@@ -41,4 +47,6 @@
 
 (provide (except-out (all-from-out racket/base) #%module-begin #%top)
          (rename-out [lb-module-begin #%module-begin] [lb-top #%top])
-         lb:raise)
+         lb:raise
+         lb:trampoline
+         lb:with-handler)

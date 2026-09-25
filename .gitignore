@@ -7,3 +7,4 @@ compiled/
 .git_*
 __pycache__/
 *.pyc
+.tmp/
