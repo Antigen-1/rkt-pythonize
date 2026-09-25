@@ -24,10 +24,23 @@
          '()
          body))
 
+;; Expressions of a body that contains no expression besides internal
+;; definitions expand to `none`.
 (define none-expr (parse-L14 'none))
 
-(with-output-language (L13 Expr)
-  (define (process-body body expand)
+;; `process-body` builds L13 expressions, so its quasiquotes have to be
+;; interpreted by `with-output-language`.  The form must be used *inside* a
+;; procedure body: it splices a compile-time quasiquote transformer into the
+;; module, and a transformer created at module level ends up embedded in the
+;; module's syntax, which the byte-code compiler cannot marshal:
+;;
+;;   write: cannot marshal value that is embedded in compiled code
+;;   value: #<procedure:...nanopass/private/meta-parser.rkt:378:0>
+;;
+;; Wrapping the body of `process-body` instead of wrapping its definition keeps
+;; `raco make`/`raco setup` working.
+(define (process-body body expand)
+  (with-output-language (L13 Expr)
     (define flattened (flatten-begins body))
     (define-values (defs rest) (partition define-form? flattened))
     (if (null? defs)

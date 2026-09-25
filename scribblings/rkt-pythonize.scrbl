@@ -5,7 +5,7 @@
                    nanopass/base
                    rkt-pythonize
                    racket/pretty
-                   @for-syntax[(submod "../main.rkt" test) racket/base racket/list racket/pretty]
+                   @for-syntax[(submod "../tests/main.rkt" test) racket/base racket/list racket/pretty]
                    ]
 
 @title{rkt-pythonize}
@@ -68,6 +68,22 @@ The language @racket[L] supports @racket[define] in body positions (e.g., inside
 @defthing[#:kind "evaluator" py-lib-string string?]
 
 @section{Changelog}
+
+Version numbers are @tt{x.y.z}, where @tt{x} changes for a major release,
+@tt{y} for a feature addition and @tt{z} for a bug fix.
+
+@subsection{1.0.0}
+@itemlist[
+@item{Fixed the @racket[define] pass: @racketmodname[nanopass]'s
+      @racket[with-output-language] is now used inside @racket[process-body] instead of
+      around its definition.  A module-level use splices a compile-time quasiquote
+      transformer into the module's syntax, which the byte-code compiler cannot marshal,
+      so @exec{raco make} and @exec{raco setup} failed with
+      @tt{write: cannot marshal value that is embedded in compiled code}}
+@item{Moved the @filepath{test} submodule of @filepath{main.rkt} to
+      @filepath{tests/main.rkt}; run it with @exec{raco test tests/main.rkt}}
+@item{Switched to @tt{x.y.z} version numbers (major release, feature addition, bug fix)}
+]
 
 @subsection{50.0}
 @itemlist[
