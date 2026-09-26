@@ -180,8 +180,10 @@
   (cond [(null? names) (mk stx lifted)]
         [else
          (define target (if rest (append params rest) params))
+         ;; apply takes the elements of its last argument, so the rest list is
+         ;; spread, not passed as one argument
          (define call (if rest
-                          (list 'apply lifted (cons 'list (append names params (list rest))))
+                          (list* 'apply lifted (append names params (list rest)))
                           (cons lifted (append names params))))
          (mk stx (list 'lambda target call))]))
 

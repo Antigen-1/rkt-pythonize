@@ -174,6 +174,13 @@
                      (print (f 1 2 3))))
                   "[1, [2, 3]]\n"))
 
+  (test-case "a capturing lambda passes its rest parameter on"
+    (check-equal? (python-output
+                   (#%python-code
+                     (define (tagger n) (lambda (a . rest) (list n a rest)))
+                     (print ((tagger 1) 2 3 4))))
+                  "[1, 2, [3, 4]]\n"))
+
   (test-case "a local procedure is lifted, and may recurse"
     (check-equal? (python-output
                    (#%python-code
