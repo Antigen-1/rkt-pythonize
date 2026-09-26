@@ -44,6 +44,9 @@ compiled, and there is nothing left of it at run time.  Three passes do the
 work:
 
 @itemlist[
+@item{@filepath{core/check-scope.rkt} -- LE to LE: a name bound by a parameter,
+by a define in its body or by the program at the top level is in scope, and any
+other name is a Python global the compiler logs a warning about.}
 @item{@filepath{core/explicit.rkt} -- LE to LL: a form that takes a thunk gets an
 explicit @racket[lambda] for its body.}
 @item{@filepath{core/lift.rkt} -- LL to LB: every @racket[lambda] and every

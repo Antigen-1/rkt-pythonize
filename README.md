@@ -184,6 +184,7 @@ Layout
 
 ```
 main.rkt                     the library: #%python-code
+core/check-scope.rkt         LE -> LE: lexical scope and warnings
 core/explicit.rkt            LE -> LL: make-explicit
 core/lift.rkt                LL -> LB: procedures lifted to the top level
 core/render.rkt              LB -> Python
@@ -197,7 +198,10 @@ Design notes
 * Clojure is the inspiration for the shape of the compiler, not for the syntax:
   one small compiler instead of a pipeline of passes, no CPS, and generated
   Python that stays readable.
-* One macro and three small passes.  `core/explicit.rkt` turns LE into LL (a
+* One macro, two checks and three rewrites.  `core/check-scope.rkt` walks LE and
+  logs a warning for a name the program never binds, and (next)
+  `core/check-expression.rkt` refuses a statement where an expression belongs.
+  `core/explicit.rkt` turns LE into LL (a
   form that takes a thunk gets an explicit lambda), `core/lift.rkt` turns LL into
   LB (every `lambda` and every locally defined procedure becomes a top-level
   define that takes the variables it captures as leading parameters), and
