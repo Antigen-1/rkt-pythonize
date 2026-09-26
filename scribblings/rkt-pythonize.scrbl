@@ -68,7 +68,7 @@ e ::= x                                  variable, a Python global
     | (begin e1 e* ...)                  a sequence, of expressions here
     | (raise e1)                         raise an exception
     | (with-handler e1 s* ...)           run the body with e1 handling what it raises
-    | (trampoline s* ...)                call what the body returns while it is a procedure
+    | (trampoline s* ... e)              call what the last body returns while it is a procedure
     | (e0 e* ...)                        application
 
 d ::= int | float | string | boolean | list | tuple | dict
@@ -133,7 +133,7 @@ does.
   (list (list @bold{source} @bold{Python})
         (list @racket[(raise e)] @elem{@racket[_raise] and @racket[_Raised]})
         (list @racket[(with-handler h e ...)] @racket[_with_handler])
-        (list @racket[(trampoline e ...)] @racket[_trampoline])
+        (list @racket[(trampoline s* ... e)] @racket[_trampoline])
         (list @racket[begin] @elem{in an expression: @racket[_begin]})
         (list @racket[(list 1 2)] @racket[list])
         (list @racket[(apply f xs)] @racket[apply])
@@ -146,23 +146,21 @@ does.
 
 @subsection{Tail calls}
 
-Tail calls are explicit.  @racket[trampoline] calls the value of its body and
-keeps calling while that value is a procedure, so a body that ends in a tail
-call returns a 0-arity procedure and loops, and a body that returns anything
-else is done:
+Tail calls are explicit.  @racket[trampoline] calls what its last body returns,
+and keeps calling while that value is a procedure, so a procedure that returns a
+thunk for its tail call loops flat and one that returns anything else is done.
+Nothing is recognised for you: the compiler does not look for a tail call and
+does not wrap one, so the thunk is yours to write.
 
 @codeblock|{
 (define python
   (#%python-code
     (define (count n acc)
-      (trampoline (if (= n 0) acc (count (- n 1) (+ acc 1)))))
-    (print (count 100000 0))))
+      (if (= n 0) acc (lambda () (count (- n 1) (+ acc 1)))))
+    (print (trampoline (count 100000 0)))))
 
 (displayln python)     ; the Python source; running it prints 100000
 }|
-
-A procedure that drives @racket[trampoline] is emitted twice: @racket[f] drives
-and @racket[f_body] holds the bounces, so a bounce never re-enters a driver.
 
 @subsection{Macros}
 

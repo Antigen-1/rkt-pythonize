@@ -213,42 +213,20 @@
 ;; the body of a with-handler or a trampoline: a lone expression stays a lambda,
 ;; a body with statements in it becomes a nested def that runs where the form
 ;; stands
-(define (hoist-thunk! bodies bounce?)
+(define (hoist-thunk! bodies)
   (define name (fresh "body"))
-  (set! pending
-        (append pending
-                (list (procedure-def name '() #f bodies (lambda (f) (branch-expr f bounce?))))))
+  (set! pending (append pending (list (procedure-def name '() #f bodies))))
   name)
 
-(define (thunk-expr bodies bounce?)
+(define (thunk-expr bodies)
   (if (expression-body? bodies)
-      (format "lambda: ~a" (single bodies "body" bounce?))
-      (hoist-thunk! bodies bounce?)))
+      (format "lambda: ~a" (single bodies "body"))
+      (hoist-thunk! bodies)))
 
 (define (indented text)
   (string-join (for/list ([line (in-list (string-split text "\n"))])
                  (string-append "    " line))
                "\n"))
-
-;; a procedure that drives trampoline is emitted twice: it drives, and its body
-;; holds the bounces, so a bounce never re-enters a driver
-(define trampolined (make-hash))
-(define (body-name sym) (string-append (munged sym) "_body"))
-
-(define (mentions? stx sym)
-  (cond [(identifier? stx) (eq? (syntax-e stx) sym)]
-        [(not (syntax->list stx)) #f]
-        [else (ormap (lambda (p) (mentions? p sym)) (syntax->list stx))]))
-
-(define (scan-trampolined! stx)
-  (define parts (syntax->list stx))
-  (when parts
-    (when (eq? (head stx) 'define)
-      (define target (cadr parts))
-      (define sig (and (pair? (syntax-e target)) (syntax-e target)))
-      (when (and sig (ormap (lambda (b) (mentions? b 'trampoline)) (cddr parts)))
-        (hash-set! trampolined (syntax-e (car sig)) #t)))
-    (for ([p (in-list parts)]) (scan-trampolined! p))))
 
 (define (expression stx)
   (if (statement-form? stx)
@@ -259,39 +237,26 @@
 (define (lisp-true stx) (format "~a is not False" (expression stx)))
 
 ;; (f e* ...): more than one body is the begin the language has room for
-(define (single bodies what [bounce? #f])
+(define (single bodies what)
   (cond [(null? bodies) (error 'compile "~a: no body" what)]
-        [(null? (cdr bodies)) (branch-expr (car bodies) bounce?)]
-        [else (begin-expr bodies bounce?)]))
+        [(null? (cdr bodies)) (expression (car bodies))]
+        [else (begin-expr bodies)]))
 
-(define (begin-expr bodies [bounce? #f])
+(define (begin-expr bodies)
   (need 'begin)
-  (define last-index (sub1 (length bodies)))
-  (format "_begin(~a)"
-          (string-join (for/list ([e (in-list bodies)] [i (in-naturals)])
-                         (if (= i last-index) (branch-expr e bounce?) (expression e)))
-                       ", ")))
+  (format "_begin(~a)" (string-join (map expression bodies) ", ")))
 
-;; what a bounce calls: the body of a trampolined procedure
-(define (bounce-callee stx)
-  (define f (car (syntax->list stx)))
-  (define sym (and (identifier? f) (syntax-e f)))
-  (if (and sym (hash-ref trampolined sym #f)) (body-name sym) (expr f)))
+;; the last body of a trampoline is the function it calls, and the compiler
+;; does not look for a tail call or wrap one for you
+(define (body-value bodies what)
+  (when (null? bodies) (error 'compile "~a: no body" what))
+  (when (statement-form? (last bodies))
+    (not-le (last bodies) "a body has a value, so it ends with an expression"))
+  (cond [(null? (cdr bodies)) (expr (car bodies))]
+        [(expression-body? bodies) (begin-expr bodies)]
+        [else (hoist-thunk! bodies)]))
 
-(define (tail-expr stx driver?)
-  (define bodies (and (eq? (head stx) 'trampoline) (cdr (syntax->list stx))))
-  (cond [(and (not driver?) bodies)
-         (if (expression-body? bodies)
-             (single bodies "trampoline" #t)
-             (hoist-thunk! bodies #t))]
-        [else (branch-expr stx #f)]))
-
-(define (branch-expr stx bounce?)
-  (if (statement-form? stx)
-      (not-le stx "a statement where an expression belongs")
-      (expr stx bounce?)))
-
-(define (application stx bounce?)
+(define (application stx)
   (define parts (syntax->list stx))
   (define f (car parts))
   (define args (cdr parts))
@@ -301,14 +266,10 @@
          (format "(~a)" (string-join (map expression args) (format " ~a " (hash-ref infix name))))]
         [(and name (eq? name 'not) (= 1 (length args))) (format "(not ~a)" (expression (car args)))]
         [else
-         (define callee
-           (cond [bounce? (bounce-callee stx)]
-                 [(eq? (head f) 'lambda) (format "(~a)" (expr f))]
-                 [else (expr f)]))
-         (define call (format "~a(~a)" callee (string-join (map expression args) ", ")))
-         (if bounce? (begin (need 'trampoline) (format "lambda: ~a" call)) call)]))
+         (define callee (if (eq? (head f) 'lambda) (format "(~a)" (expr f)) (expr f)))
+         (format "~a(~a)" callee (string-join (map expression args) ", "))]))
 
-(define (expr stx [bounce? #f])
+(define (expr stx)
   (cond
     [(identifier? stx) (global-expr (syntax-e stx))]
     [(not (syntax->list stx)) (py-datum (syntax->datum stx))]
@@ -321,9 +282,9 @@
        [(if)
         (when (not (= 4 (length parts))) (not-le stx "an if takes three parts"))
         (format "(~a if ~a else ~a)"
-                (branch-expr (caddr parts) bounce?) (lisp-true (cadr parts))
-                (branch-expr (cadddr parts) bounce?))]
-       [(begin) (begin-expr (cdr parts) bounce?)]
+                (expression (caddr parts)) (lisp-true (cadr parts))
+                (expression (cadddr parts)))]
+       [(begin) (begin-expr (cdr parts))]
        [(raise)
         (when (not (= 2 (length parts))) (not-le stx "a raise takes one expression"))
         (need 'raise)
@@ -332,18 +293,16 @@
         (when (< (length parts) 3) (not-le stx "a with-handler takes a handler and a body"))
         (need 'with-handler)
         (format "_with_handler(~a, ~a)"
-                (expression (cadr parts)) (thunk-expr (cddr parts) #f))]
+                (expression (cadr parts)) (thunk-expr (cddr parts)))]
        [(trampoline)
         (need 'trampoline)
-        (format "_trampoline(~a)"
-                (if (expression-body? (cdr parts))
-                    (single (cdr parts) "trampoline" #t)
-                    (hoist-thunk! (cdr parts) #t)))]
+        (format "_trampoline(~a)" (body-value (cdr parts) "trampoline"))]
        [(lambda)
         (when (not (= 3 (length parts)))
           (not-le stx "a lambda takes a parameter list and one expression"))
         (define sig (syntax-e (cadr parts)))
-        (when (not (pair? sig)) (not-le stx "a lambda takes a parameter list"))
+        (when (not (or (null? sig) (pair? sig)))
+          (not-le stx "a lambda takes a parameter list"))
         (define-values (params rest) (split-params sig))
         (when rest
           (not-le stx "a lambda has no room for a rest parameter: use define"))
@@ -355,7 +314,7 @@
               (format "lambda ~a: ~a" (string-join params ", ") (expression (caddr parts)))))
         (set! scopes saved-scopes)
         text]
-       [else (application stx bounce?)])]))
+       [else (application stx)])]))
 
 ;; (x y ...) or (x y ... . rest): the munged parameters and the rest parameter
 (define (split-params lst)
@@ -374,7 +333,7 @@
 (define (params-text params rest)
   (string-join (append params (if rest (list (format "*~a" rest)) '())) ", "))
 
-(define (body-lines forms tail-of)
+(define (body-lines forms)
   (define earlier (for/list ([f (in-list (drop-right forms 1))]) (statement f)))
   (define last-form (last forms))
   (define saved pending)
@@ -384,12 +343,12 @@
         ;; a body is a sequence of statements: one that ends in a statement, as
         ;; a setter does, has no value to return
         (begin (set! pending (append pending (list (statement last-form)))) "return None")
-        (format "return ~a" (tail-of last-form))))
+        (format "return ~a" (expression last-form))))
   (define hoisted pending)
   (set! pending saved)
   (append earlier hoisted (list tail)))
 
-(define (procedure-def name params rest forms tail-of)
+(define (procedure-def name params rest forms)
   (define saved-declarations declarations)
   (define saved-scopes scopes)
   (define saved-pending pending)
@@ -400,7 +359,7 @@
   (define lines
     ;; a rest parameter is a list, and the LE list is not Python's
     (append (if rest (list (format "~a = [*~a]" rest rest)) '())
-            (body-lines forms tail-of)))
+            (body-lines forms)))
   (define declarations-text (reverse declarations))
   (set! declarations saved-declarations)
   (set! scopes saved-scopes)
@@ -431,15 +390,7 @@
             (format "~a = ~a" (munged (syntax-e target)) (expression (car bodies)))]
            [(pair? (syntax-e target))
             (define-values (name params rest) (procedure-parts target))
-            (cond [(hash-ref trampolined name #f)
-                   (need 'trampoline)
-                   (define bn (body-name name))
-                   (string-append
-                    (format "def ~a(~a):\n    return _trampoline(~a(~a))"
-                            (munged name) (params-text params rest) bn (params-text params rest))
-                    "\n\n"
-                    (procedure-def bn params rest bodies (lambda (f) (tail-expr f #f))))]
-                  [else (procedure-def (munged name) params rest bodies expression)])]
+            (procedure-def (munged name) params rest bodies)]
            [else (not-le s "a definition of what?")])]
     [(set!)
      (when (not (= 3 (length parts))) (not-le s "an assignment takes one expression"))
@@ -490,7 +441,6 @@
 ;; the whole program: the pieces it asked for, then its statements
 (define (compile-program forms)
   (hash-clear! needed)
-  (hash-clear! trampolined)
   (set! fresh-count 0)
   (set! pending '())
   (set! declarations '())
@@ -498,7 +448,6 @@
   (set! warnings '())
   (set! module-names
         (for/list ([f (in-list forms)] #:when (eq? (head f) 'define)) (defined-name f)))
-  (for ([f (in-list forms)]) (scan-trampolined! f))
   (define body (string-join (for/list ([f (in-list forms)]) (statement f)) "\n\n"))
   (define prelude-text (prelude))
   (for ([message (in-list warnings)])

@@ -60,7 +60,7 @@ e ::= x                                  variable, a Python global
     | (begin e1 e* ...)                  a sequence, of expressions here
     | (raise e1)                         raise an exception
     | (with-handler e1 s* ...)           run the body with e1 handling what it raises
-    | (trampoline s* ...)                call what the body returns while it is a procedure
+    | (trampoline s* ... e)              call what the last body returns while it is a procedure
     | (e0 e* ...)                        application
 
 d ::= int | float | string | boolean | list | tuple | dict
@@ -70,7 +70,8 @@ l ::= int | float | string | boolean | tuple | dict
 A procedure body is a sequence of statements, and its value is the last
 expression in it.  The body of a `with-handler` or a `trampoline` is a statement
 sequence too: when it holds `define` or `set!` it becomes a nested `def` that
-runs where the form stands, and a lone expression stays an inline `lambda`.
+runs where the form stands, and a lone expression stays an inline `lambda`.  A
+`trampoline` ends with the expression whose value it calls.
 
 `set!` of a name an enclosing procedure binds becomes `nonlocal`, and of a name
 the program defines at the top level `global`; `set!` of a name the program
@@ -112,7 +113,7 @@ Names
 | --- | --- |
 | `(raise e)` | `_raise`, `_Raised` |
 | `(with-handler h e ...)` | `_with_handler` |
-| `(trampoline e ...)` | `_trampoline` |
+| `(trampoline s* ... e)` | `_trampoline` |
 | `begin` in an expression | `_begin` |
 | `(list 1 2)` | `list` |
 | `(apply f xs)` | `apply` |
@@ -130,23 +131,21 @@ Only `#f` is false.  An `if` compiles to `(then if test is not False else else)`
 so `0`, `""` and `'()` are true, as they are in Racket; `and`, `or` and `not`
 are Python's operators and keep Python's truth.
 
-Tail calls are explicit.  `trampoline` calls the value of its body and keeps
-calling while that value is a procedure, so a body that ends in a tail call
-returns a 0-arity procedure and loops, and a body that returns anything else is
-done:
+Tail calls are explicit.  `trampoline` calls what its last body returns, and
+keeps calling while that value is a procedure, so a procedure that returns a
+thunk for its tail call loops flat and one that returns anything else is done.
+Nothing is recognised for you: the compiler does not look for a tail call and
+does not wrap one, so the thunk is yours to write.
 
 ```racket
 (define python
   (#%python-code
     (define (count n acc)
-      (trampoline (if (= n 0) acc (count (- n 1) (+ acc 1)))))
-    (print (count 100000 0))))
+      (if (= n 0) acc (lambda () (count (- n 1) (+ acc 1)))))
+    (print (trampoline (count 100000 0)))))
 
 (displayln python)     ; the Python source; running it prints 100000
 ```
-
-A procedure that drives `trampoline` is emitted twice -- `f` drives and
-`f_body` holds the bounces -- so a bounce never re-enters a driver.
 
 Macros and reaching outside
 ---------------------------

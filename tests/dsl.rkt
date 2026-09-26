@@ -91,12 +91,12 @@
     (check-not-eq? status #t)
     (check-regexp-match #rx"_Raised" err))
 
-  (test-case "trampoline keeps a tail loop flat"
+  (test-case "trampoline calls the function the last body returns, and stays flat"
     (check-equal? (python-output
                    (#%python-code
                      (define (count n acc)
-                       (trampoline (if (= n 0) acc (count (- n 1) (+ acc 1)))))
-                     (print (count 100000 0))))
+                       (if (= n 0) acc (lambda () (count (- n 1) (+ acc 1)))))
+                     (print (trampoline (count 100000 0)))))
                   "100000\n"))
 
   (test-case "names are munged and carry their runtime piece"
@@ -141,7 +141,7 @@
         (define (count n)
           (trampoline
             (set! x (+ x 1))
-            (if (= n 0) x (count (- n 1)))))
+            (if (= n 0) (lambda () x) (lambda () (count (- n 1))))))
         (print (count 3))))
     (check-true (string-contains? code "def _body1()"))
     (check-equal? (python-output code) "4\n"))
