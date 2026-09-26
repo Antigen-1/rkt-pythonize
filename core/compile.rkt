@@ -30,9 +30,12 @@
 
 ;; forms LE does not have: say so rather than compile them as calls
 (define racket-forms
-  '(let let* letrec let-values letrec-values cond when unless case do lambda
-    define-syntax define-syntaxes define-for-syntax require provide quasiquote
-    unquote syntax-rules match struct guard parameterize with-handlers))
+  '(let let* letrec let-values letrec-values let*-values let-syntax letrec-syntax
+    cond when unless case do lambda define-syntax define-syntaxes
+    define-syntax-rule define-for-syntax begin-for-syntax define-values require
+    provide quasiquote unquote unquote-splicing syntax-rules syntax-case
+    syntax-parse match match-lambda struct guard parameterize with-handlers
+    module module+ case-lambda))
 
 ;; a procedure the program names comes with the piece it needs
 (define runtime-pieces
@@ -101,10 +104,43 @@
 (define needed (make-hash))
 (define (need piece) (hash-set! needed piece #t))
 
+;; Python names a program may lean on without defining them
+(define builtins
+  '("abs" "all" "any" "bin" "bool" "bytes" "callable" "chr" "dict" "dir"
+    "divmod" "enumerate" "filter" "float" "format" "frozenset" "getattr"
+    "hasattr" "hash" "hex" "id" "input" "int" "isinstance" "issubclass" "iter"
+    "len" "list" "locals" "map" "max" "min" "next" "object" "oct" "open" "ord"
+    "pow" "print" "range" "repr" "reversed" "round" "set" "setattr" "slice"
+    "sorted" "str" "sum" "super" "tuple" "type" "vars" "zip"
+    "ArithmeticError" "AssertionError" "AttributeError" "Exception"
+    "IndexError" "KeyError" "NameError" "NotImplementedError" "OSError"
+    "RuntimeError" "StopIteration" "TypeError" "ValueError" "ZeroDivisionError"))
+
+;; a name the program never binds is a Python global, which is the point, but
+;; it is worth saying so at warning level
+(define warnings '())
+(define (warn! message)
+  (unless (member message warnings)
+    (set! warnings (append warnings (list message)))))
+
+;; lexically bound here, defined at the top of the program, a piece, an
+;; operator, or a Python builtin?
+(define (known-name? sym)
+  (define name (munged sym))
+  (or (ormap (lambda (scope) (and (member name scope) #t)) scopes)
+      (and (member name module-names) #t)
+      (hash-ref runtime-pieces sym #f)
+      (hash-ref infix sym #f)
+      (eq? sym 'not)
+      (and (member name builtins) #t)))
+
 (define (global-expr sym)
   (when (hash-ref infix sym #f)
     (error 'compile "an operator where a value belongs: ~a" sym))
   (when (hash-ref runtime-pieces sym #f) (need (hash-ref runtime-pieces sym)))
+  (unless (known-name? sym)
+    (warn! (format "no definition of ~a in this program: it becomes the Python name ~a"
+                   sym (munged sym))))
   (munged sym))
 
 ;; names the compiler makes up
@@ -150,6 +186,9 @@
 ;; binds needs nonlocal, and a name the program defines at the top needs global
 (define (assignment sym)
   (define name (munged sym))
+  (unless (known-name? sym)
+    (warn! (format "this program never defines ~a: this set! becomes a plain Python assignment"
+                   name)))
   (cond [(null? scopes) name]
         [(member name (car scopes)) name]
         [(ormap (lambda (scope) (and (member name scope) #t)) (cdr scopes))
@@ -262,8 +301,11 @@
          (format "(~a)" (string-join (map expression args) (format " ~a " (hash-ref infix name))))]
         [(and name (eq? name 'not) (= 1 (length args))) (format "(not ~a)" (expression (car args)))]
         [else
-         (define call (format "~a(~a)" (if bounce? (bounce-callee stx) (expr f))
-                              (string-join (map expression args) ", ")))
+         (define callee
+           (cond [bounce? (bounce-callee stx)]
+                 [(eq? (head f) 'lambda) (format "(~a)" (expr f))]
+                 [else (expr f)]))
+         (define call (format "~a(~a)" callee (string-join (map expression args) ", ")))
          (if bounce? (begin (need 'trampoline) (format "lambda: ~a" call)) call)]))
 
 (define (expr stx [bounce? #f])
@@ -297,17 +339,36 @@
                 (if (expression-body? (cdr parts))
                     (single (cdr parts) "trampoline" #t)
                     (hoist-thunk! (cdr parts) #t)))]
-       [(lambda) (not-le stx "LE has no lambda: a procedure comes from define")]
+       [(lambda)
+        (when (not (= 3 (length parts)))
+          (not-le stx "a lambda takes a parameter list and one expression"))
+        (define sig (syntax-e (cadr parts)))
+        (when (not (pair? sig)) (not-le stx "a lambda takes a parameter list"))
+        (define-values (params rest) (split-params sig))
+        (when rest
+          (not-le stx "a lambda has no room for a rest parameter: use define"))
+        (define saved-scopes scopes)
+        (set! scopes (cons params scopes))
+        (define text
+          (if (null? params)
+              (format "lambda: ~a" (expression (caddr parts)))
+              (format "lambda ~a: ~a" (string-join params ", ") (expression (caddr parts)))))
+        (set! scopes saved-scopes)
+        text]
        [else (application stx bounce?)])]))
 
-(define (procedure-parts target)
-  (define sig (syntax-e target))
-  (define name (syntax-e (car sig)))
+;; (x y ...) or (x y ... . rest): the munged parameters and the rest parameter
+(define (split-params lst)
   (define (walk rest acc)
     (cond [(null? rest) (values (reverse acc) #f)]
           [(pair? rest) (walk (cdr rest) (cons (munged (syntax-e (car rest))) acc))]
           [else (values (reverse acc) (munged (syntax-e rest)))]))
-  (define-values (params rest) (walk (cdr sig) '()))
+  (walk lst '()))
+
+(define (procedure-parts target)
+  (define sig (syntax-e target))
+  (define name (syntax-e (car sig)))
+  (define-values (params rest) (split-params (cdr sig)))
   (values name params rest))
 
 (define (params-text params rest)
@@ -333,7 +394,8 @@
   (define saved-scopes scopes)
   (define saved-pending pending)
   (set! declarations '())
-  (set! scopes (cons (append params (collect-defined-in forms)) scopes))
+  (set! scopes (cons (append params (if rest (list rest) '()) (collect-defined-in forms))
+                     scopes))
   (set! pending '())
   (define lines
     (append (if rest (begin (need 'list) (list (format "~a = list(~a)" rest rest))) '())
@@ -432,11 +494,14 @@
   (set! pending '())
   (set! declarations '())
   (set! scopes '())
+  (set! warnings '())
   (set! module-names
         (for/list ([f (in-list forms)] #:when (eq? (head f) 'define)) (defined-name f)))
   (for ([f (in-list forms)]) (scan-trampolined! f))
   (define body (string-join (for/list ([f (in-list forms)]) (statement f)) "\n\n"))
   (define prelude-text (prelude))
+  (for ([message (in-list warnings)])
+    (log-warning "rkt-pythonize: ~a" message))
   (string-append header
                  (if (string=? prelude-text "") "" (string-append "\n" prelude-text "\n"))
                  "\n"

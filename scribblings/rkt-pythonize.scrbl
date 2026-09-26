@@ -63,6 +63,7 @@ s ::= e                                  an expression, for its value or its eff
 e ::= x                                  variable, a Python global
     | l                                  self-evaluating literal
     | 'd                                 quoted datum
+    | (lambda (x* ...) e)                a procedure; its body is one expression
     | (if e1 e2 e3)                      conditional
     | (begin e1 e* ...)                  a sequence, of expressions here
     | (raise e1)                         raise an exception
@@ -82,8 +83,12 @@ expression stays an inline @racket[lambda].
 
 @racket[set!] of a name an enclosing procedure binds becomes @racket[nonlocal],
 and of a name the program defines at the top level @racket[global];
-@racket[set!] of a name the program never defines is a plain Python
-assignment.
+@racket[set!] of a name the program never defines is a plain Python assignment,
+and the compiler says so.
+
+@racket[lambda] is a procedure value whose body is a single expression, so a
+rest parameter belongs to @racket[define], where the body can turn it into a
+list.
 
 @subsection{Data}
 
@@ -109,6 +114,12 @@ is @racket[object_ref], and a name that is a Python keyword gets a trailing
 operators, @racket[and] and @racket[or] are Python's, and @racket[not] is
 Python's.  An operator is not a value: @racket[(apply + xs)] is refused, so
 name a procedure when the procedure itself is wanted.}
+@item{A name the program never binds is a Python global, which is the point,
+but the compiler logs a warning about it: a reference to a name no
+@racket[define] or parameter binds, and a @racket[set!] of one.  Python builtins
+(@racket[print], @racket[len], ...) and the pieces below are known, so they stay
+quiet.  The warnings are logged at warning level, so @exec{PLTSTDERR=warning} is
+how you see them.}
 @item{Only @racket[#f] is false.  An @racket[if] compiles to
 @racket[(then if test is not False else else)], so @racket[0], @racket[""] and
 @racket[(quote ())] are true, as they are in Racket.}]

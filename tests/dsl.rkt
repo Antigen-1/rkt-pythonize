@@ -157,6 +157,41 @@
     (check-true (string-contains? code "nonlocal n"))
     (check-equal? (python-output code) "2\n"))
 
+  (test-case "lambda is a value whose body is one expression"
+    (check-equal? (python-output
+                   (#%python-code
+                     (define add1 (lambda (x) (+ x 1)))
+                     (print (add1 2))
+                     (print ((lambda (x y) (+ x y)) 3 4))
+                     (print (apply (lambda (a b) (* a b)) (list 2 5)))))
+                  "3\n7\n10\n")
+    (check-true (refuses? '((lambda (x) (print x) x))))
+    (check-true (refuses? '((lambda (x . rest) x))))
+    (check-true (refuses? '((lambda (x) (set! x 1))))))
+
+  (test-case "a name the program never defines is a warning, not an error"
+    ;; the compiler logs its warnings, so listen to the logger
+    (define (warnings-of forms)
+      (define logger (make-logger))
+      (define receiver (make-log-receiver logger 'warning))
+      (define messages '())
+      (parameterize ([current-logger logger]) (python-of-data forms))
+      (let loop ()
+        (define message (sync/timeout 0.3 receiver))
+        (when message
+          (set! messages (append messages (list (vector-ref message 1))))
+          (loop)))
+      (string-join messages " "))
+    (check-true (string-contains? (warnings-of '((print nowhere))) "nowhere"))
+    (check-true (string-contains? (warnings-of '((set! nowhere 1))) "nowhere"))
+    (check-false (string-contains? (warnings-of '((define x 1) (print (+ x 1))))
+                                   "warning"))
+    (check-false (string-contains? (warnings-of '((print (len "abc")))) "warning"))
+    (check-false (string-contains? (warnings-of '((print (object-ref (list 1 2) 0))))
+                                   "warning"))
+    (check-false (string-contains? (warnings-of '((define (f a . rest) (print rest)) (f 1 2)))
+                                   "warning")))
+
   (test-case "quoted data has no symbols"
     (check-equal? (python-output
                    (#%python-code (print (quote (1 "a" #t)))))
@@ -170,4 +205,5 @@
 
   (test-case "a Racket form is not LE, and says so"
     (check-true (refuses? '((let ([x 1]) x))))
-    (check-true (refuses? '((lambda (x) x))))))
+    (check-true (refuses? '((cond [#t 1] [else 2]))))
+    (check-true (refuses? '((define-syntax-rule (m x) x))))))

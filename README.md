@@ -55,6 +55,7 @@ s ::= e                                  an expression, for its value or its eff
 e ::= x                                  variable, a Python global
     | l                                  self-evaluating literal
     | 'd                                 quoted datum
+    | (lambda (x* ...) e)                a procedure; its body is one expression
     | (if e1 e2 e3)                      conditional
     | (begin e1 e* ...)                  a sequence, of expressions here
     | (raise e1)                         raise an exception
@@ -73,7 +74,10 @@ runs where the form stands, and a lone expression stays an inline `lambda`.
 
 `set!` of a name an enclosing procedure binds becomes `nonlocal`, and of a name
 the program defines at the top level `global`; `set!` of a name the program
-never defines is a plain Python assignment.
+never defines is a plain Python assignment, and the compiler says so.
+
+`lambda` is a procedure value whose body is a single expression, so a rest
+parameter belongs to `define`, where the body can turn it into a list.
 
 Data
 ----
@@ -96,6 +100,11 @@ Names
   `and` and `or` are Python's, and `not` is Python's.  An operator is not a
   value: `(apply + xs)` is refused, so name a procedure when the procedure
   itself is wanted.
+* A name the program never binds is a Python global, which is the point, but
+  the compiler logs a warning about it: a reference to a name no `define` or
+  parameter binds, and a `set!` of one.  Python builtins (`print`, `len`, ...)
+  and the pieces below are known, so they stay quiet.  The warnings are logged
+  at warning level, so `PLTSTDERR=warning` is how you see them.
 * A procedure the program names comes with the piece it needs, and nothing
   else does.  The pieces are exactly:
 
