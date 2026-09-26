@@ -398,7 +398,8 @@
                      scopes))
   (set! pending '())
   (define lines
-    (append (if rest (begin (need 'list) (list (format "~a = list(~a)" rest rest))) '())
+    ;; a rest parameter is a list, and the LE list is not Python's
+    (append (if rest (list (format "~a = [*~a]" rest rest)) '())
             (body-lines forms tail-of)))
   (define declarations-text (reverse declarations))
   (set! declarations saved-declarations)

@@ -66,8 +66,10 @@
                      (define (biggest first . rest)
                        (print first)
                        (apply max (list first (apply max rest))))
-                     (print (biggest 1 2 3))))
-                  "1\n3\n"))
+                     (print (biggest 1 2 3))
+                     (define (tag a . rest) (list a rest))
+                     (print (tag 1 2))))
+                  "1\n3\n[1, [2]]\n"))
 
   (test-case "only #f is false"
     (check-equal? (python-output
