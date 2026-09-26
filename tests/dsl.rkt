@@ -253,7 +253,9 @@
   (test-case "a statement where an expression belongs is refused"
     (check-true (refuses? '((print (define x 1)))))
     (check-true (refuses? '((print (if #t (set! x 1) 2)))))
-    (check-true (refuses? '((print (apply + (list 1 2)))))))
+    (check-true (refuses? '((print (apply + (list 1 2))))))
+    (check-true (refuses? '((print (begin (set! x 1) 2)))))
+    (check-true (refuses? '((define (f) (set! x 1))))))
 
   (test-case "a Racket form is not LE, and says so"
     (check-true (refuses? '((let ([x 1]) x))))

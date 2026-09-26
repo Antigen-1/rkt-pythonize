@@ -29,14 +29,6 @@
                            (and . "and") (or . "or")))])
     (values (car p) (cdr p))))
 
-;; forms LE does not have: say so rather than compile them as calls
-(define racket-forms
-  '(let let* letrec let-values letrec-values let*-values let-syntax letrec-syntax
-    cond when unless case do lambda define-syntax define-syntaxes
-    define-syntax-rule define-for-syntax begin-for-syntax define-values require
-    provide quasiquote unquote unquote-splicing syntax-rules syntax-case
-    syntax-parse match match-lambda struct guard parameterize with-handlers
-    module module+ case-lambda))
 
 ;; a procedure the program names comes with the piece it needs
 (define runtime-pieces
@@ -99,7 +91,6 @@
 (define (not-le stx what)
   (error 'compile "~a: ~a: ~a" (form-location stx) what (syntax->datum stx)))
 
-(define (statement-form? stx) (memq (head stx) '(define set!)))
 
 ;; the pieces a program asked for
 (define needed (make-hash))
@@ -161,18 +152,14 @@
                  (string-append "    " line))
                "\n"))
 
-(define (expression stx)
-  (if (statement-form? stx)
-      (not-le stx "a statement where an expression belongs")
-      (expr stx)))
 
 ;; only #f is false: 0, "" and '() are true, as they are in Racket
-(define (lisp-true stx) (format "~a is not False" (expression stx)))
+(define (lisp-true stx) (format "~a is not False" (expr stx)))
 
 
 (define (begin-expr bodies)
   (need 'begin)
-  (format "_begin(~a)" (string-join (map expression bodies) ", ")))
+  (format "_begin(~a)" (string-join (map expr bodies) ", ")))
 
 
 (define (application stx)
@@ -180,13 +167,12 @@
   (define f (car parts))
   (define args (cdr parts))
   (define name (and (identifier? f) (syntax-e f)))
-  (cond [(memq (head stx) racket-forms) (not-le stx "a Racket form, not LE")]
-        [(and name (hash-ref infix name #f) (>= (length args) 2))
-         (format "(~a)" (string-join (map expression args) (format " ~a " (hash-ref infix name))))]
-        [(and name (eq? name 'not) (= 1 (length args))) (format "(not ~a)" (expression (car args)))]
+  (cond [(and name (hash-ref infix name #f) (>= (length args) 2))
+         (format "(~a)" (string-join (map expr args) (format " ~a " (hash-ref infix name))))]
+        [(and name (eq? name 'not) (= 1 (length args))) (format "(not ~a)" (expr (car args)))]
         [else
          (define callee (if (eq? (head f) 'lambda) (format "(~a)" (expr f)) (expr f)))
-         (format "~a(~a)" callee (string-join (map expression args) ", "))]))
+         (format "~a(~a)" callee (string-join (map expr args) ", "))]))
 
 (define (expr stx)
   (cond
@@ -201,21 +187,21 @@
        [(if)
         (when (not (= 4 (length parts))) (not-le stx "an if takes three parts"))
         (format "(~a if ~a else ~a)"
-                (expression (caddr parts)) (lisp-true (cadr parts))
-                (expression (cadddr parts)))]
+                (expr (caddr parts)) (lisp-true (cadr parts))
+                (expr (cadddr parts)))]
        [(begin) (begin-expr (cdr parts))]
        [(raise)
         (when (not (= 2 (length parts))) (not-le stx "a raise takes one expression"))
         (need 'raise)
-        (format "_raise(~a)" (expression (cadr parts)))]
+        (format "_raise(~a)" (expr (cadr parts)))]
        [(with-handler)
         (when (not (= 3 (length parts))) (not-le stx "a with-handler takes a handler and a body"))
         (need 'with-handler)
-        (format "_with_handler(~a, ~a)" (expression (cadr parts)) (expression (caddr parts)))]
+        (format "_with_handler(~a, ~a)" (expr (cadr parts)) (expr (caddr parts)))]
        [(trampoline)
         (when (not (= 2 (length parts))) (not-le stx "a trampoline takes the function to call"))
         (need 'trampoline)
-        (format "_trampoline(~a)" (expression (cadr parts)))]
+        (format "_trampoline(~a)" (expr (cadr parts)))]
        [(lambda)
         (when (not (= 3 (length parts)))
           (not-le stx "a lambda takes a parameter list and one expression"))
@@ -225,7 +211,7 @@
         (define-values (params rest) (split-params sig))
         (define saved-scopes scopes)
         (set! scopes (cons (append params (if rest (list rest) '())) scopes))
-        (define body (expression (caddr parts)))
+        (define body (expr (caddr parts)))
         (set! scopes saved-scopes)
         (if (null? params)
             (format "lambda: ~a" body)
@@ -249,15 +235,10 @@
 (define (params-text params rest)
   (string-join (append params (if rest (list (format "*~a" rest)) '())) ", "))
 
+;; check-expression has said that the last form of a body is an expression
 (define (body-lines forms)
-  (define earlier (for/list ([f (in-list (drop-right forms 1))]) (statement f)))
-  (define last-form (last forms))
-  (append earlier
-          (list (if (statement-form? last-form)
-                    ;; a body is a sequence of statements: one that ends in a
-                    ;; statement, as a setter does, has no value to return
-                    (string-append (statement last-form) "\nreturn None")
-                    (format "return ~a" (expression last-form))))))
+  (append (for/list ([f (in-list (drop-right forms 1))]) (statement f))
+          (list (format "return ~a" (expr (last forms))))))
 
 (define (procedure-def name params rest forms)
   (define saved-declarations declarations)
@@ -285,14 +266,14 @@
      (when (null? bodies) (not-le s "a definition needs a body"))
      (cond [(identifier? target)
             (when (not (null? (cdr bodies))) (not-le s "a value definition takes one expression"))
-            (format "~a = ~a" (munged (syntax-e target)) (expression (car bodies)))]
+            (format "~a = ~a" (munged (syntax-e target)) (expr (car bodies)))]
            [(pair? (syntax-e target))
             (define-values (name params rest) (procedure-parts target))
             (procedure-def (munged name) params rest bodies)]
            [else (not-le s "a definition of what?")])]
     [(set!)
      (when (not (= 3 (length parts))) (not-le s "an assignment takes one expression"))
-     (format "~a = ~a" (assignment (syntax-e (cadr parts))) (expression (caddr parts)))]
+     (format "~a = ~a" (assignment (syntax-e (cadr parts))) (expr (caddr parts)))]
     [(begin) (string-join (map statement (cdr parts)) "\n")]
     [(if)
      (when (not (= 4 (length parts))) (not-le s "an if takes three parts"))

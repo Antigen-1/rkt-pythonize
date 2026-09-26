@@ -14,6 +14,7 @@
 ;; macro that writes LE is how a program grows sugar.
 
 (require (for-syntax racket/base)
+         (for-syntax "core/check-expression.rkt")
          (for-syntax "core/check-scope.rkt")
          (for-syntax "core/explicit.rkt")
          (for-syntax "core/lift.rkt")
@@ -22,9 +23,12 @@
 (define-syntax #%python-code
   (lambda (stx)
     (define forms (cdr (syntax->list stx)))
-    ;; LE --check-scope--> LE --make-explicit--> LL --lift--> LB --render--> Python
+    ;; LE --check-expression--> --check-scope--> LE --make-explicit--> LL
+    ;; --lift--> LB --render--> Python
     (datum->syntax stx
                    (render-program
-                    (lift-program (explicit-program (check-scope-program forms)))))))
+                    (lift-program
+                     (explicit-program
+                      (check-scope-program (check-expression-program forms))))))))
 
 (provide #%python-code)
