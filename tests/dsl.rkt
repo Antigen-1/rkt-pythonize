@@ -139,25 +139,69 @@
       (#%python-code
         (define x 0)
         (define (count n)
-          (trampoline
-            (set! x (+ x 1))
-            (if (= n 0) (lambda () x) (lambda () (count (- n 1))))))
-        (print (count 3))))
-    (check-true (string-contains? code "def _body1()"))
-    (check-equal? (python-output code) "4\n"))
+          (if (= n 0) x (lambda () (count (- n 1)))))
+        (print (trampoline (set! x 1) (count 3)))
+        (print x)))
+    (check-true (string-contains? code "def _lift"))
+    (check-equal? (python-output code) "1\n1\n"))
 
-  (test-case "set! of an enclosing local is nonlocal"
+  (test-case "a lifted lambda takes what it captures"
     (define code
       (#%python-code
-        (define (counter)
-          (define n 0)
-          (define (bump) (set! n (+ n 1)))
-          (bump)
-          (bump)
-          n)
-        (print (counter))))
-    (check-true (string-contains? code "nonlocal n"))
-    (check-equal? (python-output code) "2\n"))
+        (define (adder n) (lambda (x) (+ x n)))
+        (define add3 (adder 3))
+        (print (add3 4))
+        (print ((adder 10) 5))))
+    (check-true (string-contains? code "def _lift"))
+    (check-equal? (python-output code) "7\n15\n"))
+
+  (test-case "a lambda body can be statements"
+    (check-equal? (python-output
+                   (#%python-code
+                     (define (add-twice n)
+                       ((lambda (x)
+                          (define y (+ x 1))
+                          (set! y (+ y n))
+                          y)
+                        10))
+                     (print (add-twice 5))))
+                  "16\n"))
+
+  (test-case "a lambda takes a rest parameter"
+    (check-equal? (python-output
+                   (#%python-code
+                     (define f (lambda (a . rest) (list a rest)))
+                     (print (f 1 2 3))))
+                  "[1, [2, 3]]\n"))
+
+  (test-case "a local procedure is lifted, and may recurse"
+    (check-equal? (python-output
+                   (#%python-code
+                     (define (sum-to n)
+                       (define (loop i acc) (if (= i 0) acc (loop (- i 1) (+ acc i))))
+                       (loop n 0))
+                     (print (sum-to 4))))
+                  "10\n"))
+
+  (test-case "two local procedures may call each other"
+    (check-equal? (python-output
+                   (#%python-code
+                     (define (parity n)
+                       (define (ev? i) (if (= i 0) "even" (od? (- i 1))))
+                       (define (od? i) (if (= i 0) "odd" (ev? (- i 1))))
+                       (ev? n))
+                     (print (parity 7))))
+                  "odd\n"))
+
+  (test-case "a lifted procedure cannot set! what it captures"
+    (check-true (refuses? '((define (counter)
+                              (define n 0)
+                              (define (bump) (set! n (+ n 1)))
+                              (bump)
+                              n))))
+    (check-true (refuses? '((define (outer a)
+                              (define (f) a)
+                              (lambda (a) (f)))))))
 
   (test-case "lambda is a value whose body is one expression"
     (check-equal? (python-output
@@ -167,9 +211,8 @@
                      (print ((lambda (x y) (+ x y)) 3 4))
                      (print (apply (lambda (a b) (* a b)) (list 2 5)))))
                   "3\n7\n10\n")
-    (check-true (refuses? '((lambda (x) (print x) x))))
-    (check-true (refuses? '((lambda (x . rest) x))))
-    (check-true (refuses? '((lambda (x) (set! x 1))))))
+    (check-true (refuses? '((lambda (x)))))
+    (check-true (refuses? '((define (f))))))
 
   (test-case "a name the program never defines is a warning, not an error"
     ;; the compiler logs its warnings, so listen to the logger

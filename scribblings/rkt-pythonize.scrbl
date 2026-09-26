@@ -63,7 +63,7 @@ s ::= e                                  an expression, for its value or its eff
 e ::= x                                  variable, a Python global
     | l                                  self-evaluating literal
     | 'd                                 quoted datum
-    | (lambda (x* ...) e)                a procedure; its body is one expression
+    | (lambda (x* ...) s* ...)           a procedure, lifted like a define
     | (if e1 e2 e3)                      conditional
     | (begin e1 e* ...)                  a sequence, of expressions here
     | (raise e1)                         raise an exception
@@ -81,14 +81,19 @@ is a statement sequence too: when it holds @racket[define] or @racket[set!] it
 becomes a nested @racket[def] that runs where the form stands, and a lone
 expression stays an inline @racket[lambda].
 
-@racket[set!] of a name an enclosing procedure binds becomes @racket[nonlocal],
-and of a name the program defines at the top level @racket[global];
-@racket[set!] of a name the program never defines is a plain Python assignment,
-and the compiler says so.
+@racket[set!] of a name the program defines at the top level becomes
+@racket[global]; @racket[set!] of a name the program never defines is a plain
+Python assignment, and the compiler says so.  A procedure that @racket[set!]s a
+variable it captures is a compile error: a lifted procedure receives what it
+captures as parameters.  A capture that is shadowed where the procedure is used
+is a compile error too.
 
-@racket[lambda] is a procedure value whose body is a single expression, so a
-rest parameter belongs to @racket[define], where the body can turn it into a
-list.
+@racket[lambda] takes the same parameter lists as @racket[define] -- a rest
+parameter included, and it collects into a list -- and its body is a statement
+sequence like a procedure body, with the value of its last expression.  Every
+@racket[lambda], and every procedure defined where it stands, is lifted to a
+top-level define that takes the variables it captures as leading parameters, so
+a procedure value carries what it captured with it.
 
 @subsection{Data}
 

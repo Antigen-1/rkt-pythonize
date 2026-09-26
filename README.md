@@ -55,7 +55,7 @@ s ::= e                                  an expression, for its value or its eff
 e ::= x                                  variable, a Python global
     | l                                  self-evaluating literal
     | 'd                                 quoted datum
-    | (lambda (x* ...) e)                a procedure; its body is one expression
+    | (lambda (x* ...) s* ...)           a procedure, lifted like a define
     | (if e1 e2 e3)                      conditional
     | (begin e1 e* ...)                  a sequence, of expressions here
     | (raise e1)                         raise an exception
@@ -73,12 +73,16 @@ sequence too: when it holds `define` or `set!` it becomes a nested `def` that
 runs where the form stands, and a lone expression stays an inline `lambda`.  A
 `trampoline` ends with the expression whose value it calls.
 
-`set!` of a name an enclosing procedure binds becomes `nonlocal`, and of a name
-the program defines at the top level `global`; `set!` of a name the program
-never defines is a plain Python assignment, and the compiler says so.
+`set!` of a name the program defines at the top level becomes `global`; `set!` of
+a name the program never defines is a plain Python assignment, and the compiler
+says so.  A procedure that `set!`s a variable it captures is a compile error: a
+lifted procedure receives what it captures as parameters, so there is nothing to
+assign to.  A capture that is shadowed where the procedure is used is a compile
+error too -- rename one of the two.
 
-`lambda` is a procedure value whose body is a single expression, so a rest
-parameter belongs to `define`, where the body can turn it into a list.
+`lambda` takes the same parameter lists as `define` -- a rest parameter
+included, and it collects into a list -- and its body is a statement sequence
+like a procedure body, with the value of its last expression.
 
 Data
 ----
@@ -180,7 +184,8 @@ Layout
 
 ```
 main.rkt                     the library: #%python-code
-core/compile.rkt             LE -> Python
+core/lift.rkt                LE -> LL: procedures lifted to the top level
+core/compile.rkt             LL -> Python
 tests/dsl.rkt                end-to-end tests
 scribblings/rkt-pythonize.scrbl  the manual
 ```
@@ -191,8 +196,11 @@ Design notes
 * Clojure is the inspiration for the shape of the compiler, not for the syntax:
   one small compiler instead of a pipeline of passes, no CPS, and generated
   Python that stays readable.
-* One macro and one compiler.  Nothing is replaced, nothing is wrapped, and the
-  only thing the library knows about Racket is how to be a macro.
+* One macro and two small stages.  `core/lift.rkt` turns LE into LL -- every
+  `lambda` and every locally defined procedure becomes a top-level define that
+  takes the variables it captures as leading parameters -- and
+  `core/compile.rkt` turns LL into Python.  Nothing is replaced and nothing is
+  wrapped; the only thing the library knows about Racket is how to be a macro.
 * There is no separate `core.py` and no runtime library beyond the pieces above.
 * `raco setup rkt-pythonize` builds the manual.
 

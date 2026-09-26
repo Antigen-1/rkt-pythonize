@@ -14,11 +14,13 @@
 ;; macro that writes LE is how a program grows sugar.
 
 (require (for-syntax racket/base)
+         (for-syntax "core/lift.rkt")
          (for-syntax "core/compile.rkt"))
 
 (define-syntax #%python-code
   (lambda (stx)
     (define forms (cdr (syntax->list stx)))
-    (datum->syntax stx (compile-program forms))))
+    ;; LE -> LL -> Python
+    (datum->syntax stx (compile-program (lift-program forms)))))
 
 (provide #%python-code)

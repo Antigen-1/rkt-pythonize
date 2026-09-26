@@ -143,16 +143,7 @@
                    sym (munged sym))))
   (munged sym))
 
-;; names the compiler makes up
-(define fresh-count 0)
-(define (fresh base)
-  (set! fresh-count (add1 fresh-count))
-  (format "_~a~a" base fresh-count))
 
-;; statements that have to run before the statement being compiled: the body of
-;; a with-handler or a trampoline that holds statements becomes a nested def,
-;; and a def belongs before the statement that uses it
-(define pending '())
 
 ;; the nonlocal and global declarations of the def being emitted
 (define declarations '())
@@ -191,37 +182,14 @@
                    name)))
   (cond [(null? scopes) name]
         [(member name (car scopes)) name]
-        [(ormap (lambda (scope) (and (member name scope) #t)) (cdr scopes))
-         (declare! (format "nonlocal ~a" name))
-         name]
         [(member name module-names)
          (declare! (format "global ~a" name))
          name]
         [else name]))
 
-;; does this form hold a statement anywhere?  then its body needs a def
-(define (contains-statement? stx)
-  (define parts (syntax->list stx))
-  (cond [(not parts) #f]
-        [(eq? (head stx) 'quote) #f]
-        [(memq (head stx) '(define set!)) #t]
-        [else (ormap contains-statement? parts)]))
 
-(define (expression-body? bodies)
-  (and (pair? bodies) (not (ormap contains-statement? bodies))))
 
-;; the body of a with-handler or a trampoline: a lone expression stays a lambda,
-;; a body with statements in it becomes a nested def that runs where the form
-;; stands
-(define (hoist-thunk! bodies)
-  (define name (fresh "body"))
-  (set! pending (append pending (list (procedure-def name '() #f bodies))))
-  name)
 
-(define (thunk-expr bodies)
-  (if (expression-body? bodies)
-      (format "lambda: ~a" (single bodies "body"))
-      (hoist-thunk! bodies)))
 
 (define (indented text)
   (string-join (for/list ([line (in-list (string-split text "\n"))])
@@ -236,25 +204,11 @@
 ;; only #f is false: 0, "" and '() are true, as they are in Racket
 (define (lisp-true stx) (format "~a is not False" (expression stx)))
 
-;; (f e* ...): more than one body is the begin the language has room for
-(define (single bodies what)
-  (cond [(null? bodies) (error 'compile "~a: no body" what)]
-        [(null? (cdr bodies)) (expression (car bodies))]
-        [else (begin-expr bodies)]))
 
 (define (begin-expr bodies)
   (need 'begin)
   (format "_begin(~a)" (string-join (map expression bodies) ", ")))
 
-;; the last body of a trampoline is the function it calls, and the compiler
-;; does not look for a tail call or wrap one for you
-(define (body-value bodies what)
-  (when (null? bodies) (error 'compile "~a: no body" what))
-  (when (statement-form? (last bodies))
-    (not-le (last bodies) "a body has a value, so it ends with an expression"))
-  (cond [(null? (cdr bodies)) (expr (car bodies))]
-        [(expression-body? bodies) (begin-expr bodies)]
-        [else (hoist-thunk! bodies)]))
 
 (define (application stx)
   (define parts (syntax->list stx))
@@ -290,13 +244,13 @@
         (need 'raise)
         (format "_raise(~a)" (expression (cadr parts)))]
        [(with-handler)
-        (when (< (length parts) 3) (not-le stx "a with-handler takes a handler and a body"))
+        (when (not (= 3 (length parts))) (not-le stx "a with-handler takes a handler and a body"))
         (need 'with-handler)
-        (format "_with_handler(~a, ~a)"
-                (expression (cadr parts)) (thunk-expr (cddr parts)))]
+        (format "_with_handler(~a, ~a)" (expression (cadr parts)) (expression (caddr parts)))]
        [(trampoline)
+        (when (not (= 2 (length parts))) (not-le stx "a trampoline takes the function to call"))
         (need 'trampoline)
-        (format "_trampoline(~a)" (body-value (cdr parts) "trampoline"))]
+        (format "_trampoline(~a)" (expression (cadr parts)))]
        [(lambda)
         (when (not (= 3 (length parts)))
           (not-le stx "a lambda takes a parameter list and one expression"))
@@ -304,16 +258,13 @@
         (when (not (or (null? sig) (pair? sig)))
           (not-le stx "a lambda takes a parameter list"))
         (define-values (params rest) (split-params sig))
-        (when rest
-          (not-le stx "a lambda has no room for a rest parameter: use define"))
         (define saved-scopes scopes)
-        (set! scopes (cons params scopes))
-        (define text
-          (if (null? params)
-              (format "lambda: ~a" (expression (caddr parts)))
-              (format "lambda ~a: ~a" (string-join params ", ") (expression (caddr parts)))))
+        (set! scopes (cons (append params (if rest (list rest) '())) scopes))
+        (define body (expression (caddr parts)))
         (set! scopes saved-scopes)
-        text]
+        (if (null? params)
+            (format "lambda: ~a" body)
+            (format "lambda ~a: ~a" (params-text params rest) body))]
        [else (application stx)])]))
 
 ;; (x y ...) or (x y ... . rest): the munged parameters and the rest parameter
@@ -336,26 +287,19 @@
 (define (body-lines forms)
   (define earlier (for/list ([f (in-list (drop-right forms 1))]) (statement f)))
   (define last-form (last forms))
-  (define saved pending)
-  (set! pending '())
-  (define tail
-    (if (statement-form? last-form)
-        ;; a body is a sequence of statements: one that ends in a statement, as
-        ;; a setter does, has no value to return
-        (begin (set! pending (append pending (list (statement last-form)))) "return None")
-        (format "return ~a" (expression last-form))))
-  (define hoisted pending)
-  (set! pending saved)
-  (append earlier hoisted (list tail)))
+  (append earlier
+          (list (if (statement-form? last-form)
+                    ;; a body is a sequence of statements: one that ends in a
+                    ;; statement, as a setter does, has no value to return
+                    (string-append (statement last-form) "\nreturn None")
+                    (format "return ~a" (expression last-form))))))
 
 (define (procedure-def name params rest forms)
   (define saved-declarations declarations)
   (define saved-scopes scopes)
-  (define saved-pending pending)
   (set! declarations '())
   (set! scopes (cons (append params (if rest (list rest) '()) (collect-defined-in forms))
                      scopes))
-  (set! pending '())
   (define lines
     ;; a rest parameter is a list, and the LE list is not Python's
     (append (if rest (list (format "~a = [*~a]" rest rest)) '())
@@ -363,22 +307,11 @@
   (define declarations-text (reverse declarations))
   (set! declarations saved-declarations)
   (set! scopes saved-scopes)
-  (set! pending saved-pending)
   (string-append (format "def ~a(~a):\n" name (params-text params rest))
                  (indented (string-join (append declarations-text lines) "\n"))))
 
-;; a statement, with whatever the expressions inside it had to hoist before it
-(define (statement s)
-  (define saved pending)
-  (set! pending '())
-  (define text (statement* s))
-  (define hoisted pending)
-  (set! pending saved)
-  (if (null? hoisted)
-      text
-      (string-append (string-join hoisted "\n\n") "\n" text)))
 
-(define (statement* s)
+(define (statement s)
   (define parts (syntax->list s))
   (case (head s)
     [(define)
@@ -441,8 +374,6 @@
 ;; the whole program: the pieces it asked for, then its statements
 (define (compile-program forms)
   (hash-clear! needed)
-  (set! fresh-count 0)
-  (set! pending '())
   (set! declarations '())
   (set! scopes '())
   (set! warnings '())
