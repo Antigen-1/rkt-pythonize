@@ -184,8 +184,9 @@ Layout
 
 ```
 main.rkt                     the library: #%python-code
-core/lift.rkt                LE -> LL: procedures lifted to the top level
-core/compile.rkt             LL -> Python
+core/explicit.rkt            LE -> LL: make-explicit
+core/lift.rkt                LL -> LB: procedures lifted to the top level
+core/render.rkt              LB -> Python
 tests/dsl.rkt                end-to-end tests
 scribblings/rkt-pythonize.scrbl  the manual
 ```
@@ -196,10 +197,11 @@ Design notes
 * Clojure is the inspiration for the shape of the compiler, not for the syntax:
   one small compiler instead of a pipeline of passes, no CPS, and generated
   Python that stays readable.
-* One macro and two small stages.  `core/lift.rkt` turns LE into LL -- every
-  `lambda` and every locally defined procedure becomes a top-level define that
-  takes the variables it captures as leading parameters -- and
-  `core/compile.rkt` turns LL into Python.  Nothing is replaced and nothing is
+* One macro and three small passes.  `core/explicit.rkt` turns LE into LL (a
+  form that takes a thunk gets an explicit lambda), `core/lift.rkt` turns LL into
+  LB (every `lambda` and every locally defined procedure becomes a top-level
+  define that takes the variables it captures as leading parameters), and
+  `core/render.rkt` turns LB into Python.  Nothing is replaced and nothing is
   wrapped; the only thing the library knows about Racket is how to be a macro.
 * There is no separate `core.py` and no runtime library beyond the pieces above.
 * `raco setup rkt-pythonize` builds the manual.

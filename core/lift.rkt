@@ -224,9 +224,10 @@
         (mk stx (list 'set! (cadr parts) (lift (caddr parts) env current)))]
        [(with-handler)
         (mk stx (list* 'with-handler (lift (cadr parts) env current)
-                       (lift-thunk (cddr parts) stx env current)))]
+                       (for/list ([f (in-list (cddr parts))]) (lift f env current))))]
        [(trampoline)
-        (mk stx (list* 'trampoline (lift-trampoline (cdr parts) stx env current)))]
+        (mk stx (list* 'trampoline
+                       (for/list ([f (in-list (cdr parts))]) (lift f env current))))]
        [else
         (define f (car parts))
         (define binding (and (identifier? f) (lookup env (syntax-e f))))
@@ -236,20 +237,6 @@
                (mk stx (cons (proc-lifted binding)
                              (append (map car (proc-captured binding)) args)))]
               [else (mk stx (cons (lift f env current) args))])])]))
-
-;; with-handler takes a thunk, so its body becomes one: a lone lambda already
-;; is one, and anything else -- including a single expression -- is wrapped
-(define (lift-thunk forms stx env current)
-  (cond [(and (null? (cdr forms)) (eq? (head (car forms)) 'lambda))
-         (list (lift (car forms) env current))]
-        [else (list (lift (mk stx (list* 'lambda '() forms)) env current))]))
-
-;; trampoline takes the function to call, so a lone expression stays as it is
-;; and more than one body becomes a thunk that runs them
-(define (lift-trampoline forms stx env current)
-  (cond [(and (null? (cdr forms)) (not (statement? (car forms))))
-         (list (lift (car forms) env current))]
-        [else (list (lift (mk stx (list* 'lambda '() forms)) env current))]))
 
 ;; the captures of the lifted procedure have to be the variables in scope here,
 ;; or the value passed in would be the wrong one

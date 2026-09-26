@@ -40,7 +40,17 @@ print(fact(5))
 
 @defform[(#%python-code form ...)]{The Python that the LE forms compile to, as a
 string.  It is a macro: the rendering happens while the enclosing module is
-compiled, and there is nothing left of it at run time.}
+compiled, and there is nothing left of it at run time.  Three passes do the
+work:
+
+@itemlist[
+@item{@filepath{core/explicit.rkt} -- LE to LL: a form that takes a thunk gets an
+explicit @racket[lambda] for its body.}
+@item{@filepath{core/lift.rkt} -- LL to LB: every @racket[lambda] and every
+locally defined procedure becomes a top-level define that takes the variables it
+captures as leading parameters.}
+@item{@filepath{core/render.rkt} -- LB to Python: the source, with the pieces the
+program asked for.}]}
 
 @section{LE}
 
