@@ -192,6 +192,8 @@ as data and hand them to the macro:
 There is no `#%python-code` at run time: it is expanded away, and what a program
 does with the string is up to it.
 
+`CHANGELOG.md` says what changed in each version.
+
 Tests
 -----
 
@@ -216,6 +218,7 @@ core/lift.rkt                LL -> LB: procedures lifted to the top level
 core/render.rkt              LB -> Python
 tests/dsl.rkt                end-to-end tests
 scribblings/rkt-pythonize.scrbl  the manual
+CHANGELOG.md                 what changed in each version
 ```
 
 Design notes

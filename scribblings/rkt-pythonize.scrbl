@@ -11,7 +11,7 @@
 @bold{rkt-pythonize} is an LE-to-Python compiler behind one macro.  The library
 exports @racket[#%python-code], whose body is LE and whose value is the Python
 it compiles to.  The compilation happens at expansion time, so the value is a
-string.
+string.  @filepath{CHANGELOG.md} says what changed in each version.
 
 @table-of-contents[]
 
