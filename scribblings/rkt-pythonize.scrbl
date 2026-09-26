@@ -40,22 +40,7 @@ print(fact(5))
 
 @defform[(#%python-code form ...)]{The Python that the LE forms compile to, as a
 string.  It is a macro: the rendering happens while the enclosing module is
-compiled, and there is nothing left of it at run time.  Three passes do the
-work:
-
-@itemlist[
-@item{@filepath{core/check-expression.rkt} -- LE to LE: a statement where an
-expression belongs, and a Racket form that is not LE, are refused.}
-@item{@filepath{core/check-scope.rkt} -- LE to LE: a name bound by a parameter,
-by a define in its body or by the program at the top level is in scope, and any
-other name is a Python global the compiler logs a warning about.}
-@item{@filepath{core/explicit.rkt} -- LE to LL: a form that takes a thunk gets an
-explicit @racket[lambda] for its body.}
-@item{@filepath{core/lift.rkt} -- LL to LB: every @racket[lambda] and every
-locally defined procedure becomes a top-level define that takes the variables it
-captures as leading parameters.}
-@item{@filepath{core/render.rkt} -- LB to Python: the source, with the pieces the
-program asked for.}]}
+compiled, and there is nothing left of it at run time.}
 
 @section{Pipeline}
 
@@ -101,6 +86,7 @@ s ::= e                                  an expression, for its value or its eff
 e ::= x                                  variable, a Python global
     | l                                  self-evaluating literal
     | 'd                                 quoted datum
+    | (import x)                          the module the name or string x names
     | (lambda (x* ...) s* ...)           a procedure, lifted like a define
     | (if e1 e2 e3)                      conditional
     | (begin e1 e* ...)                  a sequence, of expressions here
@@ -178,6 +164,7 @@ does.
         (list @racket[(with-handler h e ...)] @racket[_with_handler])
         (list @racket[(trampoline s* ... e)] @racket[_trampoline])
         (list @racket[begin] @elem{in an expression: @racket[_begin]})
+        (list @racket[(import x)] @racket[import_module])
         (list @racket[(list 1 2)] @racket[list])
         (list @racket[(apply f xs)] @racket[apply])
         (list @racket[(keyword-apply f kw xs)] @racket[keyword_apply])

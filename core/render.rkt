@@ -164,6 +164,14 @@
         (when (not (= 2 (length parts))) (not-le stx "a raise takes one expression"))
         (need 'raise)
         (format "_raise(~a)" (expr (cadr parts)))]
+       [(import)
+        (when (not (= 2 (length parts))) (not-le stx "an import takes one module"))
+        (need 'import)
+        ;; a name names its own module; a string or an expression is the name
+        (format "import_module(~a)"
+                (if (identifier? (cadr parts))
+                    (py-string (symbol->string (syntax-e (cadr parts))))
+                    (expr (cadr parts))))]
        [(with-handler)
         (when (not (= 3 (length parts))) (not-le stx "a with-handler takes a handler and a body"))
         (need 'with-handler)

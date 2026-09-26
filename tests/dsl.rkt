@@ -145,6 +145,17 @@
     (check-true (string-contains? code "def _lift"))
     (check-equal? (python-output code) "1\n1\n"))
 
+  (test-case "import is an expression, and the module is a value"
+    (check-equal? (python-output
+                   (#%python-code
+                     (define math (import math))
+                     (print ((object-get-attr math "sqrt") 16))
+                     (print (object-has-attr? (import "math") "floor"))
+                     (print (object-has-attr? (import math) "pi"))))
+                  "4.0\nTrue\nTrue\n")
+    (check-true (refuses? '((import))))
+    (check-true (refuses? '((import math os)))))
+
   (test-case "a lifted lambda takes what it captures"
     (define code
       (#%python-code

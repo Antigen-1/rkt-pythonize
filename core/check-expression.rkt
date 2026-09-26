@@ -79,6 +79,9 @@
          (case (head stx)
            [(quote) (void)]
            [(define set!) (not-le stx "a statement where an expression belongs")]
+           [(import)
+            (when (not (= 2 (length parts))) (not-le stx "an import takes one module"))
+            (check-expression (cadr parts))]
            [(if)
             (when (not (= 4 (length parts))) (not-le stx "an if takes three parts"))
             (for ([p (in-list (cdr parts))]) (check-expression p))]

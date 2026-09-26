@@ -53,11 +53,15 @@
   (if (member base reserved) (string-append base "_") base))
 
 (define piece-order
-  '(begin raise trampoline with-handler list apply keyword-apply
+  '(import begin raise trampoline with-handler list apply keyword-apply
     object-ref object-set! object-get-attr object-set-attr! object-has-attr?))
 
 (define pieces
   (hasheq
+   'import (list "import importlib" ""
+                  "def import_module(name):"
+                  "    \"\"\"(import x): the Python module the string x names.\"\"\""
+                  "    return importlib.import_module(name)")
    'begin (list "def _begin(*values):" "    return values[-1]")
    'raise (list "class _Raised(Exception):" "    def __init__(self, value):"
                 "        super().__init__(value)" "        self.value = value" ""

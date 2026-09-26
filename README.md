@@ -78,6 +78,7 @@ s ::= e                                  an expression, for its value or its eff
 e ::= x                                  variable, a Python global
     | l                                  self-evaluating literal
     | 'd                                 quoted datum
+    | (import x)                          the module the name or string x names
     | (lambda (x* ...) s* ...)           a procedure, lifted like a define
     | (if e1 e2 e3)                      conditional
     | (begin e1 e* ...)                  a sequence, of expressions here
@@ -142,6 +143,7 @@ Names
 | `(with-handler h e ...)` | `_with_handler` |
 | `(trampoline s* ... e)` | `_trampoline` |
 | `begin` in an expression | `_begin` |
+| `(import x)` | `import_module` |
 | `(list 1 2)` | `list` |
 | `(apply f xs)` | `apply` |
 | `(keyword-apply f kw xs)` | `keyword_apply` |
@@ -222,15 +224,9 @@ Design notes
 * Clojure is the inspiration for the shape of the compiler, not for the syntax:
   one small compiler instead of a pipeline of passes, no CPS, and generated
   Python that stays readable.
-* One macro, two checks and three rewrites.  `core/check-expression.rkt` refuses
-  a statement where an expression belongs, and `core/check-scope.rkt` logs a
-  warning for a name the program never binds.  Then
-  `core/explicit.rkt` turns LE into LL (a
-  form that takes a thunk gets an explicit lambda), `core/lift.rkt` turns LL into
-  LB (every `lambda` and every locally defined procedure becomes a top-level
-  define that takes the variables it captures as leading parameters), and
-  `core/render.rkt` turns LB into Python.  Nothing is replaced and nothing is
-  wrapped; the only thing the library knows about Racket is how to be a macro.
+* One macro, five passes, and the pipeline they form is at the top of
+  this file.  Nothing is replaced and nothing is wrapped; the only thing the
+  library knows about Racket is how to be a macro.
 * There is no separate `core.py` and no runtime library beyond the pieces above.
 * `raco setup rkt-pythonize` builds the manual.
 
