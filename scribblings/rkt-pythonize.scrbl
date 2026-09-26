@@ -57,6 +57,29 @@ captures as leading parameters.}
 @item{@filepath{core/render.rkt} -- LB to Python: the source, with the pieces the
 program asked for.}]}
 
+@section{Pipeline}
+
+@itemlist[
+@item{@filepath{core/check-expression.rkt} -- LE to LE: refuses a statement where
+an expression belongs, and a Racket form that is not LE.}
+@item{@filepath{core/check-scope.rkt} -- LE to LE: a name bound by a parameter, by
+a define in its body or by the program at the top level is in scope, and any
+other name is a Python global the compiler logs a warning about.}
+@item{@filepath{core/explicit.rkt} -- LE to LL: a form that takes a thunk gets an
+explicit @racket[lambda] for its body.}
+@item{@filepath{core/lift.rkt} -- LL to LB: every @racket[lambda] and every
+locally defined procedure becomes a top-level define that takes the variables it
+captures as leading parameters.}
+@item{@filepath{core/render.rkt} -- LB to Python: the source, with the pieces the
+program asked for.}]
+
+The names a Python program has without the source defining them are two
+parameters in @filepath{core/names.rkt}: @racket[runtime-names] (the pieces and
+operators LE may use) and @racket[python-builtins] (the Python names a lifted
+program may call).  Widen either -- for instance
+@code{(begin-for-syntax (runtime-names (cons 'sys (runtime-names))))} -- and the
+scope check stops warning about what you added.
+
 @section{LE}
 
 A statement is what a body, a @racket[begin] in statement position and the

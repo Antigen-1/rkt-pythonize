@@ -8,24 +8,13 @@
 ;; name the program never binds is worth saying out loud: the compiler logs it
 ;; at warning level, for a reference and for a set! alike.
 ;;
-;; render owns what a Python program can call without the source defining it
-;; (the pieces it carries, its operators, its builtins), so this pass asks it.
+;; names.rkt owns what a Python program can call without the source defining it.
 
-(require "render.rkt")
+(require "names.rkt")
 
 (provide check-scope-program)
 
 ;; Python names a program may lean on without defining them
-(define builtins
-  '("abs" "all" "any" "bin" "bool" "bytes" "callable" "chr" "dict" "dir"
-    "divmod" "enumerate" "filter" "float" "format" "frozenset" "getattr"
-    "hasattr" "hash" "hex" "id" "input" "int" "isinstance" "issubclass" "iter"
-    "len" "list" "locals" "map" "max" "min" "next" "object" "oct" "open" "ord"
-    "pow" "print" "range" "repr" "reversed" "round" "set" "setattr" "slice"
-    "sorted" "str" "sum" "super" "tuple" "type" "vars" "zip"
-    "ArithmeticError" "AssertionError" "AttributeError" "Exception"
-    "IndexError" "KeyError" "NameError" "NotImplementedError" "OSError"
-    "RuntimeError" "StopIteration" "TypeError" "ValueError" "ZeroDivisionError"))
 
 (define (head stx) (and (pair? (syntax->list stx)) (syntax-e (car (syntax->list stx)))))
 (define (define? stx) (eq? (head stx) 'define))
@@ -45,13 +34,6 @@
 (define (body-defines forms)
   (for/list ([f (in-list forms)] #:when (define? f))
     (target-name (cadr (syntax->list f)))))
-
-;; a Python name that needs no definition: a piece, an operator, a builtin
-(define (known-python? sym)
-  (or (hash-ref runtime-pieces sym #f)
-      (hash-ref infix sym #f)
-      (eq? sym 'not)
-      (and (member (munged sym) builtins) #t)))
 
 (define module-names '())
 (define warned '())
@@ -75,7 +57,7 @@
 (define (check stx env)
   (cond [(identifier? stx)
          (define sym (syntax-e stx))
-         (unless (or (in-scope? env sym) (known-python? sym))
+         (unless (or (in-scope? env sym) (known-runtime-name? sym))
            (warn-once!
             (format "no definition of ~a in this program: it becomes the Python name ~a"
                     sym (munged sym))))]
@@ -103,7 +85,7 @@
 (define (check-set! target env)
   (when (identifier? target)
     (define sym (syntax-e target))
-    (unless (or (in-scope? env sym) (known-python? sym))
+    (unless (or (in-scope? env sym) (known-runtime-name? sym))
       (warn-once!
        (format "this program never defines ~a: this set! becomes a plain Python assignment"
                sym)))))

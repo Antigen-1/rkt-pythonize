@@ -30,6 +30,29 @@ print(fact(5))
 Nothing else is exported: there is no `#lang`, no reader, no command line, and
 no Racket form is redefined or shadowed.  The macro is the whole interface.
 
+Pipeline
+--------
+
+`#%python-code` runs five passes, and only the last one writes Python:
+
+| pass | in | out | what it does |
+| --- | --- | --- | --- |
+| `core/check-expression.rkt` | LE | LE | refuses a statement where an expression belongs, and a Racket form that is not LE |
+| `core/check-scope.rkt` | LE | LE | logs a warning for a name the program never binds |
+| `core/explicit.rkt` | LE | LL | a form that takes a thunk gets an explicit `lambda` |
+| `core/lift.rkt` | LL | LB | every procedure becomes a top-level define that takes what it captures |
+| `core/render.rkt` | LB | Python | the source, with the pieces the program asked for |
+
+The names a Python program has without the source defining them live in
+`core/names.rkt` as two parameters: `runtime-names` (the pieces and operators LE
+may use) and `python-builtins` (the Python names a lifted program may call).
+Widen either before a module's `#%python-code` forms and the scope check stops
+warning about what you added:
+
+```racket
+(begin-for-syntax (runtime-names (cons 'sys (runtime-names))))
+```
+
 LE
 --
 
