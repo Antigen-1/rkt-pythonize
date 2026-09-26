@@ -136,10 +136,13 @@ returns a 0-arity procedure and loops, and a body that returns anything else is
 done:
 
 ```racket
-(#%python-code
-  (define (count n acc)
-    (trampoline (if (= n 0) acc (count (- n 1) (+ acc 1)))))
-  (print (count 100000 0)))                      ; 100000, flat
+(define python
+  (#%python-code
+    (define (count n acc)
+      (trampoline (if (= n 0) acc (count (- n 1) (+ acc 1)))))
+    (print (count 100000 0))))
+
+(displayln python)     ; the Python source; running it prints 100000
 ```
 
 A procedure that drives `trampoline` is emitted twice -- `f` drives and
@@ -154,7 +157,8 @@ as data and hand them to the macro:
 
 ```racket
 (define-syntax-rule (python-twice e) (#%python-code (print e) (print e)))
-(python-twice (quote (1 2)))                     ; "[1, 2]\n[1, 2]\n"
+(displayln (python-twice (quote (1 2))))
+;; the source it renders is print([1, 2]) twice, so running it prints two lines
 ```
 
 There is no `#%python-code` at run time: it is expanded away, and what a program
