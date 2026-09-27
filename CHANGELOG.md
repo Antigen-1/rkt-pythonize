@@ -6,6 +6,17 @@ design – a Lisp-to-Python transpiler (LB, then LE, then LM) driven by a
 nanopass pipeline, with a runtime macro system of its own; the last of
 those was 1.3.3.
 
+## 3.7.5
+
+* The README’s two tables are hand-aligned boxed blocks: the Markdown
+  backend has no table, and the flattened one it made of them ran cells
+  together where a cell filled its column.
+
+* The README’s layout listing names `scribblings/readme.scrbl` and
+  `scribblings/changelog.scrbl`, the manual’s first and last chapters,
+  and `./build-docs.sh`, which renders them into `README.md` and
+  `CHANGELOG.md`.
+
 ## 3.7.4
 
 * The prelude carries only the pieces a program asked for, and a piece

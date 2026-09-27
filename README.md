@@ -35,13 +35,14 @@ whole interface.
 
 `#%python-code` runs five passes, and only the last one writes Python:
 
-**pass**                   **in****out****what it does**                                                       
-`core/check-expression.rkt`LE    LE     refuses a statement where an expression belongs, and a Racket form that
-                                        is not LE                                                              
-`core/check-scope.rkt`     LE    LE     logs a warning for a name the program never binds                      
-`core/explicit.rkt`        LE    LL     a form that takes a thunk gets an explicit `lambda`                    
-`core/lift.rkt`            LL    LB     every procedure becomes a top-level define that takes what it captures 
-`core/render.rkt`          LB    Python the source, with the pieces the program asked for                      
+```racket
+pass                        in    out     what it does                                                                     
+core/check-expression.rkt   LE    LE      refuses a statement where an expression belongs, and a Racket form that is not LE
+core/check-scope.rkt        LE    LE      logs a warning for a name the program never binds                                
+core/explicit.rkt           LE    LL      a form that takes a thunk gets an explicit lambda                                
+core/lift.rkt               LL    LB      every procedure becomes a top-level define that takes what it captures           
+core/render.rkt             LB    Python  the source, with the pieces the program asked for                                
+```
 
 The names a Python program has without the source defining them live in
 `core/names.rkt` as two parameters: `runtime-names` (the pieces and
@@ -143,20 +144,22 @@ compile error, and there is no `eval` and no `gensym`.
 * A procedure the program names comes with the piece it needs, and
   nothing else does.  The pieces are exactly:
 
-**source**                      **Python**         
-`(raise e)`                     `_raise`, `_Raised`
-`(with-handler h e ...)`        `_with_handler`    
-`(trampoline s* ... e)`         `_trampoline`      
-`begin` in an expression        `_begin`           
-`(import x)`                    `import_module`    
-`(list 1 2)`                    `list`             
-`(apply f xs)`                  `apply`            
-`(keyword-apply f kw xs)`       `keyword_apply`    
-`(object-ref xs 0)`             `object_ref`       
-`(object-set! xs 0 1)`          `object_set_b`     
-`(object-get-attr xs "append")` `object_get_attr`  
-`(object-set-attr! xs "a" 1)`   `object_set_attr_b`
-`(object-has-attr? xs "append")``object_has_attr_p`
+```racket
+source                          Python           
+(raise e)                       _raise, _Raised  
+(with-handler h e ...)          _with_handler    
+(trampoline s* ... e)           _trampoline      
+begin in an expression          _begin           
+(import x)                      import_module    
+(list 1 2)                      list             
+(apply f xs)                    apply            
+(keyword-apply f kw xs)         keyword_apply    
+(object-ref xs 0)               object_ref       
+(object-set! xs 0 1)            object_set_b     
+(object-get-attr xs "append")   object_get_attr  
+(object-set-attr! xs "a" 1)     object_set_attr_b
+(object-has-attr? xs "append")  object_has_attr_p
+```
 
 ## Truth and tail calls
 
@@ -214,15 +217,18 @@ rkt-pythonize` is enough.
 ## Layout
 
 ```racket
-main.rkt                     the library: #%python-code                  
-core/check-expression.rkt    LE -> LE: statement/expression context      
-core/check-scope.rkt         LE -> LE: lexical scope and warnings        
-core/explicit.rkt            LE -> LL: make-explicit                     
-core/lift.rkt                LL -> LB: procedures lifted to the top level
-core/render.rkt              LB -> Python                                
-tests/dsl.rkt                end-to-end tests                            
-scribblings/rkt-pythonize.scrbl  the manual                              
-CHANGELOG.md                 what changed in each version                
+main.rkt                     the library: #%python-code                   
+core/check-expression.rkt    LE -> LE: statement/expression context       
+core/check-scope.rkt         LE -> LE: lexical scope and warnings         
+core/explicit.rkt            LE -> LL: make-explicit                      
+core/lift.rkt                LL -> LB: procedures lifted to the top level 
+core/render.rkt              LB -> Python                                 
+tests/dsl.rkt                end-to-end tests                             
+scribblings/rkt-pythonize.scrbl  the manual                               
+scribblings/readme.scrbl     the README, also the manual's first chapter  
+scribblings/changelog.scrbl  the changelog, also the manual's last chapter
+build-docs.sh                renders both into README.md and CHANGELOG.md 
+CHANGELOG.md                 what changed in each version                 
 ```
 
 ## Design notes
