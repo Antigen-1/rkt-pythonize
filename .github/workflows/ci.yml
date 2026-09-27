@@ -39,3 +39,5 @@ jobs:
         run: raco setup --check-pkg-deps --unused-pkg-deps rkt-pythonize
       - name: Testing rkt-pythonize
         run: raco test -x -p rkt-pythonize
+      - name: Checking that the generated docs match their sources
+        run: ./build-docs.sh && git diff --exit-code README.md CHANGELOG.md

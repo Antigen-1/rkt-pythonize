@@ -9,12 +9,22 @@
          racket/system
          rkt-pythonize)
 
+;; python3 first, then python, and PYTHON_EXE overrides both
+(define (find-python)
+  (define candidates
+    (if (getenv "PYTHON_EXE")
+        (list (getenv "PYTHON_EXE") "python3" "python")
+        (list "python3" "python")))
+  (or (for/or ([candidate (in-list candidates)])
+        (and candidate (find-executable-path candidate)))
+      (error 'test "no Python found: set PYTHON_EXE, or put python3 or python on PATH")))
+
 (define (run-python code)
   (define out (open-output-string))
   (define err (open-output-string))
   (define status
     (parameterize ([current-output-port out] [current-error-port err])
-      (system* (find-executable-path "python3") "-c" code)))
+      (system* (find-python) "-c" code)))
   (values status (get-output-string out) (get-output-string err)))
 
 ;; the macro renders while the module compiles, so a program that has to be
@@ -231,6 +241,28 @@
                   "3\n7\n10\n")
     (check-true (refuses? '((lambda (x)))))
     (check-true (refuses? '((define (f))))))
+
+  (test-case "the prelude is only what the program asked for"
+    (define plain (#%python-code (print "hi")))
+    (check-false (string-contains? plain "importlib"))
+    (check-false (string-contains? plain "_trampoline"))
+    (check-false (string-contains? plain "_with_handler"))
+    (check-false (string-contains? plain "_raise"))
+    (check-equal? (python-output plain) "hi\n")
+    ;; with-handler catches _Raised, so it has to bring raise along
+    (define handled
+      (#%python-code (print (with-handler (lambda (e) 0) (object-ref (list) 5)))))
+    (check-true (string-contains? handled "_Raised"))
+    (check-false (string-contains? handled "_trampoline"))
+    (check-equal? (python-output handled) "0\n")
+    ;; a trampoline program carries its piece and nothing else
+    (define looping
+      (#%python-code
+        (define (count n) (if (= n 0) "done" (lambda () (count (- n 1)))))
+        (print (trampoline (count 3)))))
+    (check-true (string-contains? looping "_trampoline"))
+    (check-false (string-contains? looping "importlib"))
+    (check-equal? (python-output looping) "done\n"))
 
   (test-case "operators are syntax, by arity"
     (check-equal? (python-output

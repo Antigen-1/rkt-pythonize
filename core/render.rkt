@@ -63,8 +63,15 @@
 
 
 ;; the pieces a program asked for
+;; a piece may need another: with-handler catches _Raised, which raise defines
+(define piece-dependencies (hash 'with-handler '(raise)))
+
 (define needed (make-hash))
-(define (need piece) (hash-set! needed piece #t))
+(define (need piece)
+  (unless (hash-ref needed piece #f)
+    (hash-set! needed piece #t)
+    (for ([needed-piece (in-list (hash-ref piece-dependencies piece '()))])
+      (need needed-piece))))
 
 ;; an operator is syntax: what it renders to depends on how many operands it
 ;; has, and it is never a value
