@@ -6,6 +6,16 @@ ones are listed too.  Everything before 2.0.0 was a different design -- a
 Lisp-to-Python transpiler (LB, then LE, then LM) driven by a nanopass pipeline,
 with a runtime macro system of its own; the last of those was 1.3.3.
 
+3.6.4
+-----
+
+- Operators are syntax, and the set is the one Python's builtins support:
+  `+ - * / quotient modulo expt`, `& | ^ << >>`, `= not= < > <= >=` (`equal?`
+  is `=`, `eq?` is `is`), `in`, `and`, `or` infix with two or more operands, and
+  `not`, `-`, `~` prefix with one (`(+ x)` is `x`).  An operator is never a
+  value: `(apply + xs)` and `(print +)` are refused, and one is checked in
+  `check-expression` instead of only at render time.
+
 3.5.4
 -----
 

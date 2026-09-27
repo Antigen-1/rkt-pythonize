@@ -137,12 +137,16 @@ becomes @racket[print(len("abc"))].}
 @racket[even_p], @racket[set-car!] is @racket[set_car_b], @racket[object-ref]
 is @racket[object_ref], and a name that is a Python keyword gets a trailing
 @racketid[_].}
-@item{@racket[+], @racket[-], @racket[*], @racket[/], @racket[quotient],
-@racket[modulo], @racket[expt], @racket[=], @racket[<], @racket[>],
-@racket[<=], @racket[>=], @racket[equal?] and @racket[eq?] are Python
-operators, @racket[and] and @racket[or] are Python's, and @racket[not] is
-Python's.  An operator is not a value: @racket[(apply + xs)] is refused, so
-name a procedure when the procedure itself is wanted.}
+@item{Operators are @bold{syntax}, not procedures.  With two or more operands
+they are infix: @racket[+], @racket[-], @racket[*], @racket[/],
+@racket[quotient], @racket[modulo], @racket[expt], @racket[&], @racket[\|],
+@racket[^], @racket[\|], @racket[<<], @racket[>>], @racket[=], @racket[not=], @racket[<],
+@racket[>], @racket[<=], @racket[>=] (@racket[equal?] is @racket[=],
+@racket[eq?] is @racket[is]), @racket[in], @racket[and] and @racket[or].  With
+one operand @racket[not], @racket[-] and @racket[~] are prefix, and
+@racket[(+ x)] is @racket[x].  An operator is never a value:
+@racket[(apply + xs)] is refused, so define a procedure when the procedure
+itself is wanted.}
 @item{A name the program never binds is a Python global, which is the point,
 but the compiler logs a warning about it: a reference to a name no
 @racket[define] or parameter binds, and a @racket[set!] of one.  Python builtins

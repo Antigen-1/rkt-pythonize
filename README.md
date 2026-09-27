@@ -125,10 +125,12 @@ Names
 * Names are munged into readable Python identifiers: `even?` is `even_p`,
   `set-car!` is `set_car_b`, `object-ref` is `object_ref`, and a name that is a
   Python keyword gets a trailing `_`.
-* `+ - * / quotient modulo expt = < > <= >= equal? eq?` are Python operators,
-  `and` and `or` are Python's, and `not` is Python's.  An operator is not a
-  value: `(apply + xs)` is refused, so name a procedure when the procedure
-  itself is wanted.
+* Operators are **syntax**, not procedures.  With two or more operands they are
+  infix: `+ - * / quotient modulo expt`, `& | ^ << >>`, `= not= < > <= >=`
+  (`equal?` is `=`, `eq?` is `is`), `in`, `and`, `or`.  With one operand `not`,
+  `-` and `~` are prefix, and `(+ x)` is `x`.  An operator is never a value:
+  `(apply + xs)` and `(print +)` are refused, so define a procedure when the
+  procedure itself is wanted.
 * A name the program never binds is a Python global, which is the point, but
   the compiler logs a warning about it: a reference to a name no `define` or
   parameter binds, and a `set!` of one.  Python builtins (`print`, `len`, ...)

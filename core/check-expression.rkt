@@ -9,7 +9,8 @@
 ;; is a statement, so a definition cannot hide inside one and mean something
 ;; else there, and a body ends with the expression that is its value.
 
-(require racket/list)
+(require racket/list
+         "names.rkt")
 
 (provide check-expression-program)
 
@@ -73,7 +74,10 @@
 
 ;; an expression: nothing inside it is a statement
 (define (check-expression stx)
-  (cond [(not (syntax->list stx)) (void)]
+  (cond [(identifier? stx)
+         (when (memq (syntax-e stx) operators)
+           (not-le stx "an operator is syntax, not a value: define a procedure instead"))]
+        [(not (syntax->list stx)) (void)]
         [else
          (define parts (syntax->list stx))
          (case (head stx)
@@ -98,4 +102,6 @@
             (check-body (cdr parts))]
            [else
             (when (memq (head stx) racket-forms) (not-le stx "a Racket form, not LE"))
-            (for ([p (in-list parts)]) (check-expression p))])]))
+            ;; the head of a call is a name or a form, not a place for an operand
+            (unless (identifier? (car parts)) (check-expression (car parts)))
+            (for ([p (in-list (cdr parts))]) (check-expression p))])]))

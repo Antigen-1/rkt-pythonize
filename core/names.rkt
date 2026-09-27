@@ -14,16 +14,24 @@
 (require racket/list
          racket/string)
 
-(provide munged infix runtime-pieces pieces piece-order
+(provide munged infix prefix operators runtime-pieces pieces piece-order
          runtime-names python-builtins known-runtime-name?)
 
+;; operators are syntax, not values: with two or more operands they are infix
 (define infix
   (for/hash ([p (in-list '((+ . "+") (- . "-") (* . "*") (/ . "/")
-                           (= . "==") (< . "<") (> . ">") (<= . "<=") (>= . ">=")
-                           (equal? . "==") (eq? . "is")
                            (quotient . "//") (modulo . "%") (expt . "**")
-                           (and . "and") (or . "or")))])
+                           (& . "&") (\| . "|") (^ . "^") (<< . "<<") (>> . ">>")
+                           (= . "==") (not= . "!=") (< . "<") (> . ">")
+                           (<= . "<=") (>= . ">=") (equal? . "==") (eq? . "is")
+                           (in . "in") (and . "and") (or . "or")))])
     (values (car p) (cdr p))))
+
+;; with one operand these are prefix, and + is the operand itself
+(define prefix (hash 'not "not" '- "-" '~ "~"))
+
+;; every name that is an operator, so the passes can tell syntax from a name
+(define operators (append (hash-keys infix) (hash-keys prefix) '(+) ))
 
 (define runtime-pieces
   (for/hash ([p (in-list '((list . list) (apply . apply) (keyword-apply . keyword-apply)
@@ -86,9 +94,9 @@
    'object-set-attr! (list "def object_set_attr_b(obj, name, value):" "    setattr(obj, name, value)")
    'object-has-attr? (list "def object_has_attr_p(obj, name):" "    return hasattr(obj, name)")))
 
-;; what the runtime carries for LE: the pieces, the operators, and not
+;; what the runtime carries for LE: the pieces and the operators
 (define runtime-names
-  (make-parameter (append (hash-keys runtime-pieces) (hash-keys infix) '(not))))
+  (make-parameter (append (hash-keys runtime-pieces) operators)))
 
 ;; Python names a lifted program may call without the program defining them
 (define python-builtins

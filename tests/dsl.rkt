@@ -232,6 +232,29 @@
     (check-true (refuses? '((lambda (x)))))
     (check-true (refuses? '((define (f))))))
 
+  (test-case "operators are syntax, by arity"
+    (check-equal? (python-output
+                   (#%python-code
+                     (print (+ 1 2 3))
+                     (print (- 10 1 2))
+                     (print (- 5))
+                     (print (modulo 7 2))
+                     (print (expt 2 3))
+                     (print (& 12 10))
+                     (print (\| 12 10))
+                     (print (^ 12 10))
+                     (print (~ 12))
+                     (print (<< 1 4))
+                     (print (>> 16 2))
+                     (print (not= 1 2))
+                     (print (= 1 1))
+                     (print (in 2 (list 1 2 3)))
+                     (print (not (in 5 (list 1 2 3))))))
+                  "6\n7\n-5\n1\n8\n8\n14\n6\n-13\n16\n4\nTrue\nTrue\nTrue\nTrue\n")
+    (check-true (refuses? '((print +))))
+    (check-true (refuses? '((& 1))))
+    (check-true (refuses? '((not 1 2)))))
+
   (test-case "a name the program never defines is a warning, not an error"
     ;; the compiler logs its warnings, so listen to the logger
     (define (warnings-of forms)

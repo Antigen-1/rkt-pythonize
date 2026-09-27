@@ -66,8 +66,21 @@
 (define needed (make-hash))
 (define (need piece) (hash-set! needed piece #t))
 
+;; an operator is syntax: what it renders to depends on how many operands it
+;; has, and it is never a value
+(define (operator-text name args)
+  (define (arity)
+    (error 'compile "~a takes ~a operands" name (length args)))
+  (cond [(and (eq? name 'not) (= 1 (length args))) (format "(not ~a)" (expr (car args)))]
+        [(and (hash-ref prefix name #f) (= 1 (length args)))
+         (if (eq? name '+) (expr (car args))
+             (format "(~a~a)" (hash-ref prefix name) (expr (car args))))]
+        [(and (hash-ref infix name #f) (>= (length args) 2))
+         (format "(~a)" (string-join (map expr args) (format " ~a " (hash-ref infix name))))]
+        [else (arity)]))
+
 (define (global-expr sym)
-  (when (hash-ref infix sym #f)
+  (when (memq sym operators)
     (error 'compile "an operator where a value belongs: ~a" sym))
   (when (hash-ref runtime-pieces sym #f) (need (hash-ref runtime-pieces sym)))
   (munged sym))
@@ -137,9 +150,7 @@
   (define f (car parts))
   (define args (cdr parts))
   (define name (and (identifier? f) (syntax-e f)))
-  (cond [(and name (hash-ref infix name #f) (>= (length args) 2))
-         (format "(~a)" (string-join (map expr args) (format " ~a " (hash-ref infix name))))]
-        [(and name (eq? name 'not) (= 1 (length args))) (format "(not ~a)" (expr (car args)))]
+  (cond [(and name (memq name operators)) (operator-text name args)]
         [else
          (define callee (if (eq? (head f) 'lambda) (format "(~a)" (expr f)) (expr f)))
          (format "~a(~a)" callee (string-join (map expr args) ", "))]))
