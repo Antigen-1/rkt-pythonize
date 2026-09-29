@@ -33,10 +33,11 @@ whole interface.
 
 ## Pipeline
 
-`#%python-code` runs five passes, and only the last one writes Python:
+`#%python-code` runs six passes, and only the last one writes Python:
 
 ```racket
 pass                        in    out     what it does                                                                     
+core/expand-cond.rkt        LE    LE      a cond becomes nested ifs, each clause body a begin                              
 core/check-expression.rkt   LE    LE      refuses a statement where an expression belongs, and a Racket form that is not LE
 core/check-scope.rkt        LE    LE      logs a warning for a name the program never binds                                
 core/explicit.rkt           LE    LL      a form that takes a thunk gets an explicit lambda                                
@@ -74,6 +75,7 @@ s ::= e                                  an expression, for its value or its eff
     | (set! x e)                         assign                                                 
     | (begin s ...)                      a sequence, of statements here                         
     | (if e1 s1 s2)                      a conditional of statements                            
+    | (cond [e s* ...] ...)              the first clause whose test is true; else is last      
                                                                                                 
 e ::= x                                  variable, a Python global                              
     | l                                  self-evaluating literal                                
@@ -81,6 +83,7 @@ e ::= x                                  variable, a Python global
     | (import x)                          the module the name or string x names                 
     | (lambda (x* ...) s* ...)           a procedure, lifted like a define                      
     | (if e1 e2 e3)                      conditional                                            
+    | (cond [e e* ...] ...)              the first clause whose test is true; else is last      
     | (begin e1 e* ...)                  a sequence, of expressions here                        
     | (raise e1)                         raise an exception                                     
     | (with-handler e1 s* ...)           run the body with e1 handling what it raises           
@@ -109,6 +112,11 @@ rename one of the two.
 `lambda` takes the same parameter lists as `define` – a rest parameter
 included, and it collects into a list – and its body is a statement
 sequence like a procedure body, with the value of its last expression.
+
+`cond` runs the body of the first clause whose test is true, and a
+clause body is an implicit `begin`, so it may hold several forms; `else`
+is the last clause, and a `cond` with no `else` raises when no test is
+true.
 
 ## Data
 
@@ -237,7 +245,7 @@ CHANGELOG.md                 what changed in each version
   syntax: one small compiler instead of a pipeline of passes, no CPS,
   and generated Python that stays readable.
 
-* One macro, five passes, and the pipeline they form is at the top of
+* One macro, six passes, and the pipeline they form is at the top of
   this file.  Nothing is replaced and nothing is wrapped; the only thing
   the library knows about Racket is how to be a macro.
 

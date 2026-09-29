@@ -53,12 +53,13 @@ and no Racket form is redefined or shadowed.  The macro is the whole interface.
 
 @section[#:style 'unnumbered]{Pipeline}
 
-@racket[#%python-code] runs five passes, and only the last one writes Python:
+@racket[#%python-code] runs six passes, and only the last one writes Python:
 
 @; the tables are hand-aligned text in a boxed block: the Markdown backend has no
 @; table, and its flattened one runs cells together where a cell fills a column
 @plain-code|{
 pass                        in    out     what it does
+core/expand-cond.rkt        LE    LE      a cond becomes nested ifs, each clause body a begin
 core/check-expression.rkt   LE    LE      refuses a statement where an expression belongs, and a Racket form that is not LE
 core/check-scope.rkt        LE    LE      logs a warning for a name the program never binds
 core/explicit.rkt           LE    LL      a form that takes a thunk gets an explicit lambda
@@ -96,6 +97,7 @@ s ::= e                                  an expression, for its value or its eff
     | (set! x e)                         assign
     | (begin s ...)                      a sequence, of statements here
     | (if e1 s1 s2)                      a conditional of statements
+    | (cond [e s* ...] ...)              the first clause whose test is true; else is last
 
 e ::= x                                  variable, a Python global
     | l                                  self-evaluating literal
@@ -103,6 +105,7 @@ e ::= x                                  variable, a Python global
     | (import x)                          the module the name or string x names
     | (lambda (x* ...) s* ...)           a procedure, lifted like a define
     | (if e1 e2 e3)                      conditional
+    | (cond [e e* ...] ...)              the first clause whose test is true; else is last
     | (begin e1 e* ...)                  a sequence, of expressions here
     | (raise e1)                         raise an exception
     | (with-handler e1 s* ...)           run the body with e1 handling what it raises
@@ -131,6 +134,11 @@ two.
 @racket[lambda] takes the same parameter lists as @racket[define] -- a rest
 parameter included, and it collects into a list -- and its body is a statement
 sequence like a procedure body, with the value of its last expression.
+
+@racket[cond] runs the body of the first clause whose test is true, and a clause
+body is an implicit @racket[begin], so it may hold several forms; @racket[else]
+is the last clause, and a @racket[cond] with no @racket[else] raises when no
+test is true.
 
 @section[#:style 'unnumbered]{Data}
 
@@ -257,7 +265,7 @@ CHANGELOG.md                 what changed in each version
 @item{Clojure is the inspiration for the shape of the compiler, not for the
 syntax: one small compiler instead of a pipeline of passes, no CPS, and
 generated Python that stays readable.}
-@item{One macro, five passes, and the pipeline they form is at the top of this
+@item{One macro, six passes, and the pipeline they form is at the top of this
 file.  Nothing is replaced and nothing is wrapped; the only thing the library
 knows about Racket is how to be a macro.}
 @item{There is no separate @tt{core.py} and no runtime library beyond the pieces

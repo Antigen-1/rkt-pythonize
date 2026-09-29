@@ -87,6 +87,8 @@ compiled, and there is nothing left of it at run time.}
 @section{Pipeline}
 
 @itemlist[
+@item{@filepath{core/expand-cond.rkt} -- LE to LE: a @racket[cond] becomes the
+nested @racket[if]s it means, each clause body a @racket[begin].}
 @item{@filepath{core/check-expression.rkt} -- LE to LE: refuses a statement where
 an expression belongs, and a Racket form that is not LE.}
 @item{@filepath{core/check-scope.rkt} -- LE to LE: a name bound by a parameter, by
@@ -124,6 +126,7 @@ s ::= e                                  an expression, for its value or its eff
     | (set! x e)                         assign
     | (begin s ...)                      a sequence, of statements here
     | (if e1 s1 s2)                      a conditional of statements
+    | (cond [e s* ...] ...)              the first clause whose test is true; else is last
 
 e ::= x                                  variable, a Python global
     | l                                  self-evaluating literal
@@ -131,6 +134,7 @@ e ::= x                                  variable, a Python global
     | (import x)                          the module the name or string x names
     | (lambda (x* ...) s* ...)           a procedure, lifted like a define
     | (if e1 e2 e3)                      conditional
+    | (cond [e e* ...] ...)              the first clause whose test is true; else is last
     | (begin e1 e* ...)                  a sequence, of expressions here
     | (raise e1)                         raise an exception
     | (with-handler e1 s* ...)           run the body with e1 handling what it raises
@@ -160,6 +164,11 @@ sequence like a procedure body, with the value of its last expression.  Every
 @racket[lambda], and every procedure defined where it stands, is lifted to a
 top-level define that takes the variables it captures as leading parameters, so
 a procedure value carries what it captured with it.
+
+@racket[cond] runs the body of the first clause whose test is true, and a clause
+body is an implicit @racket[begin], so it may hold several forms;
+@racket[else] is the last clause, and a @racket[cond] with no @racket[else]
+raises when no test is true.
 
 @subsection{Data}
 

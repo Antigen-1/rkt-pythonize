@@ -6,6 +6,18 @@ design – a Lisp-to-Python transpiler (LB, then LE, then LM) driven by a
 nanopass pipeline, with a runtime macro system of its own; the last of
 those was 1.3.3.
 
+## 3.8.5
+
+* `cond`: the body of the first clause whose test is true, with the
+  clauses after it in the else position.  A clause body is an implicit
+  `begin`, so it may hold several forms; `else` is a keyword, and legal
+  only as the last clause’s test; a `cond` that runs out of clauses
+  raises when no test is true.
+
+* `core/expand-cond.rkt`, the pass that expands it into nested `if`s and
+  `begin`s.  It runs first, so the checks after it only see `if` and
+  `begin`, and the pipeline is six passes.
+
 ## 3.7.5
 
 * The README’s two tables are hand-aligned boxed blocks: the Markdown

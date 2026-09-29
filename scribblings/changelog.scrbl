@@ -14,6 +14,18 @@ ones are listed too.  Everything before 2.0.0 was a different design -- a
 Lisp-to-Python transpiler (LB, then LE, then LM) driven by a nanopass pipeline,
 with a runtime macro system of its own; the last of those was 1.3.3.
 
+@section[#:style 'unnumbered]{3.8.5}
+
+@itemlist[
+@item{@racket[cond]: the body of the first clause whose test is true, with the
+clauses after it in the else position.  A clause body is an implicit
+@racket[begin], so it may hold several forms; @racket[else] is a keyword, and
+legal only as the last clause's test; a @racket[cond] that runs out of clauses
+raises when no test is true.}
+@item{@tt{core/expand-cond.rkt}, the pass that expands it into nested
+@racket[if]s and @racket[begin]s.  It runs first, so the checks after it only
+see @racket[if] and @racket[begin], and the pipeline is six passes.}]
+
 @section[#:style 'unnumbered]{3.7.5}
 
 @itemlist[
