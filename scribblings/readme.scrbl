@@ -226,7 +226,8 @@ predicate and the bang -- and a name that is a Python keyword takes a trailing
 
 @plain-code|{
 name                'snake, the default   'camel
-even?               even_p                 evenP
+even?               even_p                 isEven
+a?b                 a_pb                   aPb
 set-car!            set_car_b              setCarB
 object-ref          object_ref             objectRef
 a--b                a__b                   a_B
@@ -238,6 +239,12 @@ class               class_                 class_    a Python keyword
 With @racket['snake] the words are joined with @tt{_}; with @racket['camel] the
 letter after a @tt{-} is capitalized instead, and a @tt{-} that has no letter
 after it is joined, so no name is lost.
+
+With @racket['camel] a name that ends with @tt{?} is the predicate it says it
+is: the @tt{?} comes off, the first letter is capitalized, and @tt{is} goes in
+front, so @tt{even?} is @tt{isEven} and @tt{my-func?} is @tt{isMyFunc}.  A
+@tt{?} that is not the end of a name is @tt{P} -- @tt{a?b} is @tt{aPb} -- where
+@racket['snake] has @tt{_p} in both places.
 
 A name that already spells its Python name -- one with an @tt{_} in it --
 is left as it is, so a Python keyword argument that is not one word can be

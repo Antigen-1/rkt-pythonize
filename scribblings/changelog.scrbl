@@ -14,6 +14,18 @@ ones are listed too.  Everything before 2.0.0 was a different design -- a
 Lisp-to-Python transpiler (LB, then LE, then LM) driven by a nanopass pipeline,
 with a runtime macro system of its own; the last of those was 1.3.3.
 
+@section[#:style 'unnumbered]{3.10.6}
+
+@itemlist[
+@item{The camel predicate rule is written down, and the conversion tables agree
+with the compiler: with @racket['camel] a name that ends with @racket[?] is the
+predicate it says it is -- the @racket[?] comes off, the first letter is
+capitalized, and @tt{is} goes in front, so @racket[even?] is @tt{isEven} and
+@racket[my-func?] is @tt{isMyFunc} -- while a @racket[?] that is not the end of
+a name is @tt{P}, as in @tt{aPb} where @racket['snake] has @tt{a_pb}.  The
+tables and the 3.10.5 note below said @tt{evenP}, which the compiler has not
+done since the rule changed in 3.10.5; nothing in the compiler changed here.}]
+
 @section[#:style 'unnumbered]{3.10.5}
 
 @itemlist[
@@ -36,10 +48,12 @@ one that starts with a digit takes a leading one.}
 @item{@racket[python-name-style] is a parameter, @racket['snake] by default and
 @racket['camel] otherwise, so a module says how its names are spelled:
 @racket[(begin-for-syntax (python-name-style 'camel))] before its
-@racket[#%python-code] forms compiles @racket[even?] to @tt{evenP} and
+@racket[#%python-code] forms compiles @racket[even?] to @tt{isEven} and
 @racket[object-ref] to @tt{objectRef}.  With @racket['camel] the letter after a
-@racket[-] is capitalized, and a @racket[-] with no letter after it is joined
-instead, so no name is lost.  @racket[python-name] takes a prefix and a suffix
+@racket[-] is capitalized, a @racket[-] with no letter after it is joined
+instead, so no name is lost, and a name that ends with @racket[?] is the
+predicate it says it is: the @racket[?] comes off, the first letter is
+capitalized, and @tt{is} goes in front.  @racket[python-name] takes a prefix and a suffix
 too, Python text around the conversion, which is how the compiler names what it
 lifts.  @racket[python-name], @racket[python-name-style],
 @racket[runtime-names] and @racket[python-builtins] are provided at the phase

@@ -207,7 +207,8 @@ trailing `_` while one that starts with a digit takes a leading one:
 
 ```racket
 name                'snake, the default   'camel                                     
-even?               even_p                 evenP                                     
+even?               even_p                 isEven                                    
+a?b                 a_pb                   aPb                                       
 set-car!            set_car_b              setCarB                                   
 object-ref          object_ref             objectRef                                 
 a--b                a__b                   a_B                                       
@@ -219,6 +220,12 @@ class               class_                 class_    a Python keyword
 With `'snake` the words are joined with `_`; with `'camel` the letter
 after a `-` is capitalized instead, and a `-` that has no letter after
 it is joined, so no name is lost.
+
+With `'camel` a name that ends with `?` is the predicate it says it is:
+the `?` comes off, the first letter is capitalized, and `is` goes in
+front, so `even?` is `isEven` and `my-func?` is `isMyFunc`.  A `?` that
+is not the end of a name is `P` – `a?b` is `aPb` – where `'snake` has
+`_p` in both places.
 
 A name that already spells its Python name – one with an `_` in it – is
 left as it is, so a Python keyword argument that is not one word can be

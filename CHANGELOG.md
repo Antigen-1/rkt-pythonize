@@ -6,6 +6,17 @@ design – a Lisp-to-Python transpiler (LB, then LE, then LM) driven by a
 nanopass pipeline, with a runtime macro system of its own; the last of
 those was 1.3.3.
 
+## 3.10.6
+
+* The camel predicate rule is written down, and the conversion tables
+  agree with the compiler: with `'camel` a name that ends with `?` is
+  the predicate it says it is – the `?` comes off, the first letter is
+  capitalized, and `is` goes in front, so `even?` is `isEven` and
+  `my-func?` is `isMyFunc` – while a `?` that is not the end of a name
+  is `P`, as in `aPb` where `'snake` has `a_pb`.  The tables and the
+  3.10.5 note below said `evenP`, which the compiler has not done since
+  the rule changed in 3.10.5; nothing in the compiler changed here.
+
 ## 3.10.5
 
 * Keyword arguments, Racket’s way, on both sides of a call: a parameter
@@ -30,9 +41,11 @@ those was 1.3.3.
 * `python-name-style` is a parameter, `'snake` by default and `'camel`
   otherwise, so a module says how its names are spelled:
   `(begin-for-syntax (python-name-style 'camel))` before its
-  `#%python-code` forms compiles `even?` to `evenP` and `object-ref` to
-  `objectRef`.  With `'camel` the letter after a `-` is capitalized, and
-  a `-` with no letter after it is joined instead, so no name is lost.
+  `#%python-code` forms compiles `even?` to `isEven` and `object-ref` to
+  `objectRef`.  With `'camel` the letter after a `-` is capitalized, a
+  `-` with no letter after it is joined instead, so no name is lost, and
+  a name that ends with `?` is the predicate it says it is: the `?`
+  comes off, the first letter is capitalized, and `is` goes in front.
   `python-name` takes a prefix and a suffix too, Python text around the
   conversion, which is how the compiler names what it lifts.
   `python-name`, `python-name-style`, `runtime-names` and
