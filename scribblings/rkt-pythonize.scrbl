@@ -12,6 +12,10 @@
 @(define example-namespace (make-base-namespace))
 @(parameterize ([current-namespace example-namespace])
    (eval '(require rkt-pythonize)))
+@; the examples below run while this manual is built: the prelude's prefix is
+@; pinned to nothing so the Python they show reads the way the manual says
+@(parameterize ([current-namespace example-namespace])
+   (eval '(begin-for-syntax (prelude-prefix ""))))
 
 @; the Macros section's example runs in that namespace, so its defmacro has to
 @; be evaluated there: a macro is visible where its name is bound
@@ -127,8 +131,8 @@ cannot hide inside one and mean something else there.
 @verbatim|{
 s ::= e                                  an expression, for its value or its effect
     | (define x e)                       bind a value
-    | (define (x x* ...) s* ...)         bind a procedure
-    | (define (x x* ... . rest) s* ...)  bind a procedure; the rest parameter
+    | (define (x p* ...) s* ...)         bind a procedure
+    | (define (x p* ... . rest) s* ...)  bind a procedure; the rest parameter
     |                                    collects the arguments into a list
     | (set! x e)                         assign
     | (begin s ...)                      a sequence, of statements here
@@ -139,14 +143,18 @@ e ::= x                                  variable, a Python global
     | l                                  self-evaluating literal
     | 'd                                 quoted datum
     | (import x)                          the module the name or string x names
-    | (lambda (x* ...) s* ...)           a procedure, lifted like a define
+    | (lambda (p* ...) s* ...)           a procedure, lifted like a define
     | (if e1 e2 e3)                      conditional
     | (cond [e e* ...] ...)              the first clause whose test is true; else is last
     | (begin e1 e* ...)                  a sequence, of expressions here
     | (raise e1)                         raise an exception
     | (with-handler e1 s* ...)           run the body with e1 handling what it raises
     | (trampoline s* ... e)              call what the last body returns while it is a procedure
-    | (e0 e* ...)                        application
+    | (e0 a* ...)                        application, with keyword arguments
+
+p ::= x | #:k x                          a parameter: positional, or the parameter
+                                         of the keyword k
+a ::= e | #:k e                          an argument: positional, or the keyword k
 
 d ::= int | float | string | boolean | list | tuple | dict
 l ::= int | float | string | boolean | tuple | dict
@@ -184,17 +192,23 @@ dicts.  A list is a Python list, a tuple is @racket[#(1 2)] and becomes
 @racket[(1, 2)], and a dict is @racket[#hash(("a" . 1))] and becomes
 @racket[{"a": 1}], so dict keys are strings.  There is no symbol type, so
 quoting a symbol is a compile error, and there is no @racket[eval] and no
-@racket[gensym].
+@racket[gensym]: the one way a program makes a name of its own is
+@racket[gensym] in a macro, and a macro is the one place to ask for it.  A
+keyword is not data either: @racket[#:k] is the syntax of a
+keyword argument, so @racket[(quote #:k)] and @racket[#(1 #:k)] are compile
+errors too.
 
 @subsection{Names}
 
 @itemlist[
 @item{A free identifier is a Python global: @racket[(print (len "abc"))]
 becomes @racket[print(len("abc"))].}
-@item{Names are munged into readable Python identifiers: @racket[even?] is
-@racket[even_p], @racket[set-car!] is @racket[set_car_b], @racket[object-ref]
-is @racket[object_ref], and a name that is a Python keyword gets a trailing
-@racketid[_].}
+@item{@filepath{core/names.rkt} owns what a name is in Python:
+@racket[python-name] is the conversion, @racket[python-keyword-name] is a
+keyword argument's name and @racket[piece-name] is what a piece is called, and
+the conversion reads the name and @racket[python-name-style] and nothing else,
+so the Python name of a top-level define is knowable from the source alone.
+The rules are below.}
 @item{Operators are @bold{syntax}, not procedures.  With two or more operands
 they are infix: @racket[+], @racket[-], @racket[*], @racket[/],
 @racket[quotient], @racket[modulo], @racket[expt], @racket[&], @racket[\|],
@@ -215,6 +229,129 @@ how you see them.}
 @racket[(then if test is not False else else)], so @racket[0], @racket[""] and
 @racket[(quote ())] are true, as they are in Racket.}]
 
+A @racket[-] ends a word of a name, @racket[?] and @racket[!] are words of their
+own -- the predicate and the bang -- and a name that is a Python keyword takes a
+trailing @tt{_} while one that starts with a digit takes a leading one:
+
+@verbatim|{
+name                'snake, the default   'camel
+even?               even_p                 evenP
+set-car!            set_car_b              setCarB
+object-ref          object_ref             objectRef
+a--b                a__b                   a_B
+a-                  a_                     a_
+class               class_                 class_    a Python keyword
+1st                 _1st                   _1st      a name cannot start with a digit
+}|
+
+With @racket['snake] the words are joined with @tt{_}; with
+@racket['camel] the letter after a @racket[-] is capitalized instead, and a
+@racket[-] that has no letter after it is joined, so no name is lost.
+
+A name that already spells its Python name -- one with an @tt{_} in it --
+is left as it is, so a Python keyword argument that is not one word can be
+written exactly: @racket[#:format_spec] is @racket[format_spec] in either style.
+
+@racket[python-name-style] is the parameter that chooses, and it is set where
+the compiler runs, before the forms it is meant for:
+
+@codeblock|{
+(begin-for-syntax (python-name-style 'camel))
+}|
+
+@racket[python-name] is provided at that phase too, so
+@racket[(begin-for-syntax (python-name 'object-ref))] is the name a form would
+use; it takes a prefix and a suffix as well, which are Python text put around
+the conversion and not converted themselves.
+
+A keyword argument's name is converted as a name is -- @racket[#:foo-bar] is
+@racket[foo_bar] in one style and @racket[fooBar] in the other -- and the
+keyword a Python function takes is converted the same way, whether or not the
+program defines the procedure it calls: @racket[(sorted xs #:reverse #t)] is
+@tt{sorted(xs, reverse=True)}.
+
+A name the compiler makes up for itself is @tt{_lift_3f9a1b2c}, or
+@tt{_lift_3f9a1b2c_inner} for a procedure the program called @racket[inner], and
+it is a UUID the program did not write down, so a name the program defines at
+the top level is its own in the Python.  The prelude's own names carry
+@racket[prelude-prefix] -- an identifier's worth of a UUID, which the compiler
+asks for once a run -- so a name a program writes is never one of the
+prelude's: a program may define
+@racket[list] and get its own @racket[list], while the piece the compiler calls
+is out of its reach under the prefix.  Pin the prefix to have the same Python
+every time; this manual pins it to nothing, so the pieces below read as they are
+written.  Two top-level names that are one Python name --
+@racket[x-y] and @racket[x_y] -- are a compile error, so a name of the program
+is one name in the module.  What is compared is the Python name in both
+directions: a program that defines @racket[x-y] and writes @racket[x_y]
+anywhere -- a call, a reference, a @racket[set!] -- is writing the name it
+defined, and a parameter list that spells one Python name twice is refused as
+well.
+
+@subsection{Keyword arguments}
+
+A parameter list takes keyword parameters, written @racket[#:k k], and a call
+hands a procedure keyword arguments the same way:
+
+@codeblock|{
+(define (area w #:height height) (* w height))
+(print (area 3 #:height 4))
+}|
+
+The Python that renders, produced while this manual is built:
+
+@verbatim{@(python-of '((define (area w #:height height) (* w height))
+                        (print (area 3 #:height 4))))}
+
+and what running it prints:
+
+@verbatim{@(output-of '((define (area w #:height height) (* w height))
+                        (print (area 3 #:height 4))))}
+
+The star is what makes @tt{height} keyword-only in Python, and it stands where
+the rest parameter would: @tt{(define (f a #:k k . rest) ...)} is
+@tt{def f(a, *rest, k)}, and @racket[lambda] takes keyword parameters too.  A
+keyword parameter is keyword-only where the procedure is called, as it is in
+Racket, and the parameter list of a procedure that captures is lifted with its
+keywords, so a procedure value passes them on.
+
+A keyword's name is a name, converted as a name is: @racket[#:foo-bar] is
+@tt{foo_bar}, @racket[#:even?] is @tt{even_p}.  In Python a keyword and the
+parameter it fills are one name, so a parameter list spells the keyword twice,
+@racket[#:k k], and @racket[#:k v] is a compile error.
+
+The same conversion names the keyword a Python function takes, whether or not
+the program defines the procedure: a call reads as a Scheme name and renders as
+the Python one.
+
+@codeblock|{
+(print (sorted (list 3 1 2) #:reverse #t))
+(print (round 2.567 #:ndigits 2))
+}|
+
+@verbatim{@(python-of '((print (sorted (list 3 1 2) #:reverse #t))
+                        (print (round 2.567 #:ndigits 2))))}
+
+@verbatim{@(output-of '((print (sorted (list 3 1 2) #:reverse #t))
+                        (print (round 2.567 #:ndigits 2))))}
+
+A call writes its keyword arguments where it likes, Racket's way; the Python it
+renders puts the positional arguments first and the keyword ones after, which is
+also the order Python evaluates them in.
+
+@verbatim{@(python-of '((define (tag x y #:label label) (list label x y))
+                        (print (tag 1 #:label "a" 2))))}
+
+A keyword is syntax, not a value: it names an argument where a call writes one
+and a parameter where a parameter list takes one, and it is never a datum, so
+@racket[(quote #:k)] is refused.  One keyword takes one value, and two
+arguments that are one Python name after the conversion -- @racket[#:x-y] and
+@racket[#:x_y] -- are the one keyword, which is a compile error rather than the
+@tt{SyntaxError} Python would raise.
+
+@racket[apply] carries a keyword argument to the function it calls, which is the
+function the keyword is for: @racket[(apply f xs #:k v)] is @tt{f(*xs, k=v)}.
+
 @subsection{Runtime pieces}
 
 A procedure the program names comes with the piece it needs, and nothing else
@@ -222,19 +359,20 @@ does.
 
 @(tabular
   (list (list @bold{source} @bold{Python})
-        (list @racket[(raise e)] @elem{@racket[_raise] and @racket[_Raised]})
-        (list @racket[(with-handler h e ...)] @racket[_with_handler])
-        (list @racket[(trampoline s* ... e)] @racket[_trampoline])
-        (list @racket[begin] @elem{in an expression: @racket[_begin]})
-        (list @racket[(import x)] @racket[import_module])
-        (list @racket[(list 1 2)] @racket[list])
-        (list @racket[(apply f xs)] @racket[apply])
-        (list @racket[(keyword-apply f kw xs)] @racket[keyword_apply])
-        (list @racket[(object-ref xs 0)] @racket[object_ref])
-        (list @racket[(object-set! xs 0 1)] @racket[object_set_b])
-        (list @racket[(object-get-attr xs "append")] @racket[object_get_attr])
-        (list @racket[(object-set-attr! xs "a" 1)] @racket[object_set_attr_b])
-        (list @racket[(object-has-attr? xs "append")] @racket[object_has_attr_p])))
+        (list @racket[(raise e)] @elem{@tt{raise_} and @tt{Raised}})
+        (list @racket[(with-handler h e ...)] @tt{with_handler})
+        (list @racket[(trampoline s* ... e)] @tt{trampoline})
+        (list @racket[begin] @elem{in an expression: @tt{begin}})
+        (list @racket[(import x)] @tt{import_module})
+        (list @racket[(list 1 2)] @tt{list})
+        (list @racket[(apply f xs)] @tt{apply})
+        (list @racket[(keyword-apply f kw xs)] @tt{keyword_apply})
+        (list @racket[(object-ref xs 0)] @tt{object_ref})
+        (list @racket[(object-set! xs 0 1)] @tt{object_set_b})
+        (list @racket[(object-get-attr xs "append")] @tt{object_get_attr})
+        (list @racket[(object-set-attr! xs "a" 1)] @tt{object_set_attr_b})
+        (list @racket[(object-has-attr? xs "append")] @tt{object_has_attr_p})))
+
 
 @subsection{Tail calls}
 
@@ -273,7 +411,15 @@ this form in its own module, or in a module that requires the one that wrote
 it -- and a macro has to be defined before the @racket[#%python-code] form that
 uses it.  There is no hygiene: the expansion is re-syntaxed where it is used,
 so @racket[gensym] a name of the macro's own.  @racket[(defmacro name
-transformer)] binds @racket[name] to a transformer expression.}
+transformer)] binds @racket[name] to a transformer expression.
+
+@racket[params] is a Racket parameter list, so a macro takes keyword arguments
+too: @racket[(defmacro (m x #:k k) ...)] is called @racket[(m 1 #:k 2)], and a
+keyword of a macro may carry a default, @racket[#:k [k 5]], which a procedure's
+may not.  A transformer is a Racket procedure, so a macro's keywords are
+Racket's: they are not converted, two of them are two keywords over there
+whatever they would be in Python, and a call that names one the transformer does
+not take, or leaves out one it needs, is a compile error.}
 
 @codeblock|{
 (defmacro (twice form) `(begin ,form ,form))

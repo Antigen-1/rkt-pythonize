@@ -2,7 +2,8 @@
 
 (require racket/list
          racket/string
-         "names.rkt")
+         "names.rkt"
+         "params.rkt")
 
 ;; LB -> Python.  LB is LL after the lift pass.
 ;;
@@ -38,6 +39,7 @@
 
 (define (py-datum value)
   (cond [(symbol? value) (error 'compile "a symbol is not data: ~a" value)]
+        [(keyword? value) (error 'compile "a keyword is not data: ~a" value)]
         [(integer? value) (format "~a" value)]
         [(flonum? value) (format "~a" value)]
         [(string? value) (py-string value)]
@@ -63,7 +65,7 @@
 
 
 ;; the pieces a program asked for
-;; a piece may need another: with-handler catches _Raised, which raise defines
+;; a piece may need another: with-handler catches the exception raise defines
 (define piece-dependencies (hash 'with-handler '(raise)))
 
 (define needed (make-hash))
@@ -89,8 +91,20 @@
 (define (global-expr sym)
   (when (memq sym operators)
     (error 'compile "an operator where a value belongs: ~a" sym))
-  (when (hash-ref runtime-pieces sym #f) (need (hash-ref runtime-pieces sym)))
-  (munged sym))
+  ;; a piece the compiler calls itself, and a piece the program calls: the
+  ;; second is the program's own name where the program binds it, and the
+  ;; prelude's, under the prefix it carries, everywhere else
+  (define called (called-piece sym))
+  (cond [called (need called) (piece-name called)]
+        [(and (hash-ref runtime-pieces sym #f) (not (bound-name? (python-name sym))))
+         (need (hash-ref runtime-pieces sym))
+         (piece-name sym)]
+        [else (python-name sym)]))
+
+;; a name the program binds, at the top level or in a procedure around here
+(define (bound-name? name)
+  (or (and (member name module-names) #t)
+      (for/or ([scope (in-list scopes)]) (and (member name scope) #t))))
 
 
 
@@ -109,8 +123,8 @@
 (define (defined-name stx)
   (define target (cadr (syntax->list stx)))
   (if (identifier? target)
-      (munged (syntax-e target))
-      (munged (syntax-e (car (syntax-e target))))))
+      (python-name (syntax-e target))
+      (python-name (syntax-e (car (syntax-e target))))))
 
 (define (collect-defined stx)
   (define parts (syntax->list stx))
@@ -125,7 +139,7 @@
 ;; where a set! lands: a local name is assigned, a name an enclosing procedure
 ;; binds needs nonlocal, and a name the program defines at the top needs global
 (define (assignment sym)
-  (define name (munged sym))
+  (define name (python-name sym))
   (cond [(null? scopes) name]
         [(member name (car scopes)) name]
         [(member name module-names)
@@ -149,7 +163,7 @@
 
 (define (begin-expr bodies)
   (need 'begin)
-  (format "_begin(~a)" (string-join (map expr bodies) ", ")))
+  (format "~a(~a)" (piece-name 'begin) (string-join (map expr bodies) ", ")))
 
 
 (define (application stx)
@@ -160,7 +174,18 @@
   (cond [(and name (memq name operators)) (operator-text name args)]
         [else
          (define callee (if (eq? (head f) 'lambda) (format "(~a)" (expr f)) (expr f)))
-         (format "~a(~a)" callee (string-join (map expr args) ", "))]))
+         ;; the positional arguments first, then the keyword ones: Python's
+         ;; order, and the order it evaluates them in
+         (define-values (positional keywords)
+           (argument-parts args (lambda (message) (not-le stx message))))
+         (format "~a(~a)"
+                 callee
+                 (string-join (append (map expr positional)
+                                      (for/list ([keyword (in-list keywords)])
+                                        (format "~a=~a"
+                                                (python-keyword-name (car keyword))
+                                                (expr (cadr keyword)))))
+                              ", "))]))
 
 (define (expr stx)
   (cond
@@ -181,75 +206,86 @@
        [(raise)
         (when (not (= 2 (length parts))) (not-le stx "a raise takes one expression"))
         (need 'raise)
-        (format "_raise(~a)" (expr (cadr parts)))]
+        (format "~a(~a)" (piece-name 'raise) (expr (cadr parts)))]
        [(import)
         (when (not (= 2 (length parts))) (not-le stx "an import takes one module"))
         (need 'import)
         ;; a name names its own module; a string or an expression is the name
-        (format "import_module(~a)"
+        (format "~a(~a)" (piece-name 'import)
                 (if (identifier? (cadr parts))
                     (py-string (symbol->string (syntax-e (cadr parts))))
                     (expr (cadr parts))))]
        [(with-handler)
         (when (not (= 3 (length parts))) (not-le stx "a with-handler takes a handler and a body"))
         (need 'with-handler)
-        (format "_with_handler(~a, ~a)" (expr (cadr parts)) (expr (caddr parts)))]
+        (format "~a(~a, ~a)" (piece-name 'with-handler) (expr (cadr parts)) (expr (caddr parts)))]
        [(trampoline)
         (when (not (= 2 (length parts))) (not-le stx "a trampoline takes the function to call"))
         (need 'trampoline)
-        (format "_trampoline(~a)" (expr (cadr parts)))]
+        (format "~a(~a)" (piece-name 'trampoline) (expr (cadr parts)))]
        [(lambda)
         (when (not (= 3 (length parts)))
           (not-le stx "a lambda takes a parameter list and one expression"))
-        (define sig (syntax-e (cadr parts)))
+        (define sig (syntax->datum (cadr parts)))
         (when (not (or (null? sig) (pair? sig)))
           (not-le stx "a lambda takes a parameter list"))
-        (define-values (params rest) (split-params sig))
+        (define-values (params keywords rest) (signature-parts sig))
         (define saved-scopes scopes)
-        (set! scopes (cons (append params (if rest (list rest) '())) scopes))
+        (set! scopes (cons (signature-names params keywords rest) scopes))
         (define body (expr (caddr parts)))
         (set! scopes saved-scopes)
-        (if (null? params)
+        (if (and (null? params) (null? keywords))
             (format "lambda: ~a" body)
-            (format "lambda ~a: ~a" (params-text params rest) body))]
+            (format "lambda ~a: ~a" (params-text params keywords rest) body))]
        [else (application stx)])]))
 
-;; (x y ...) or (x y ... . rest): the munged parameters and the rest parameter
-(define (split-params lst)
-  (define (walk rest acc)
-    (cond [(null? rest) (values (reverse acc) #f)]
-          [(pair? rest) (walk (cdr rest) (cons (munged (syntax-e (car rest))) acc))]
-          [else (values (reverse acc) (munged (syntax-e rest)))]))
-  (walk lst '()))
-
+;; (x y #:k k . rest): a signature is core/params.rkt's, and a name is
+;; core/names.rkt's
+;; where it is written
 (define (procedure-parts target)
-  (define sig (syntax-e target))
-  (define name (syntax-e (car sig)))
-  (define-values (params rest) (split-params (cdr sig)))
-  (values name params rest))
+  (define sig (syntax->datum target))
+  (define name (car sig))
+  (define-values (params keywords rest) (signature-parts (cdr sig)))
+  (values name params keywords rest))
 
-(define (params-text params rest)
-  (string-join (append params (if rest (list (format "*~a" rest)) '())) ", "))
+;; every Python name a signature binds
+(define (signature-names params keywords rest)
+  (append (map python-name params)
+          (map (lambda (k) (python-keyword-name (keyword-param-keyword k))) keywords)
+          (if rest (list (python-name rest)) '())))
+
+;; def f(a, b, *rest, k): the star is what makes a keyword parameter
+;; keyword-only, as it is in Racket, and it stands where the rest parameter
+;; would
+(define (params-text params keywords rest)
+  (define positional (map python-name params))
+  (define star (cond [rest (list (format "*~a" (python-name rest)))]
+                     [(pair? keywords) (list "*")]
+                     [else '()]))
+  (define keyword-params
+    (for/list ([k (in-list keywords)]) (python-keyword-name (keyword-param-keyword k))))
+  (string-join (append positional star keyword-params) ", "))
 
 ;; check-expression has said that the last form of a body is an expression
 (define (body-lines forms)
   (append (for/list ([f (in-list (drop-right forms 1))]) (statement f))
           (list (format "return ~a" (expr (last forms))))))
 
-(define (procedure-def name params rest forms)
+(define (procedure-def name params keywords rest forms)
   (define saved-declarations declarations)
   (define saved-scopes scopes)
   (set! declarations '())
-  (set! scopes (cons (append params (if rest (list rest) '()) (collect-defined-in forms))
+  (set! scopes (cons (append (signature-names params keywords rest)
+                             (collect-defined-in forms))
                      scopes))
   (define lines
     ;; a rest parameter is a list, and the LE list is not Python's
-    (append (if rest (list (format "~a = [*~a]" rest rest)) '())
+    (append (if rest (list (format "~a = [*~a]" (python-name rest) (python-name rest))) '())
             (body-lines forms)))
   (define declarations-text (reverse declarations))
   (set! declarations saved-declarations)
   (set! scopes saved-scopes)
-  (string-append (format "def ~a(~a):\n" name (params-text params rest))
+  (string-append (format "def ~a(~a):\n" name (params-text params keywords rest))
                  (indented (string-join (append declarations-text lines) "\n"))))
 
 
@@ -262,10 +298,10 @@
      (when (null? bodies) (not-le s "a definition needs a body"))
      (cond [(identifier? target)
             (when (not (null? (cdr bodies))) (not-le s "a value definition takes one expression"))
-            (format "~a = ~a" (munged (syntax-e target)) (expr (car bodies)))]
+            (format "~a = ~a" (python-name (syntax-e target)) (expr (car bodies)))]
            [(pair? (syntax-e target))
-            (define-values (name params rest) (procedure-parts target))
-            (procedure-def (munged name) params rest bodies)]
+            (define-values (name params keywords rest) (procedure-parts target))
+            (procedure-def (python-name name) params keywords rest bodies)]
            [else (not-le s "a definition of what?")])]
     [(set!)
      (when (not (= 3 (length parts))) (not-le s "an assignment takes one expression"))
@@ -282,8 +318,18 @@
 
 (define (prelude)
   (define used (filter (lambda (piece) (hash-ref needed piece #f)) piece-order))
-  (string-join (for/list ([piece (in-list used)]) (string-join (hash-ref pieces piece) "\n"))
+  (string-join (for/list ([piece (in-list used)]) (piece-text piece))
                "\n\n"))
+
+;; core/names.rkt names a piece: ~a in its text is where its own name goes --
+;; a piece that answers to an LE name follows the style of the moment -- and ~t
+;; is where the prelude's prefix goes, for the names it keeps inside itself
+(define (piece-text piece)
+  (define name (piece-name piece))
+  (define prefix (prelude-prefix))
+  (string-join (for/list ([line (in-list (hash-ref pieces piece))])
+                 (string-replace (string-replace line "~t" prefix) "~a" name))
+               "\n"))
 
 ;; the whole program: the pieces it asked for, then its statements
 (define (render-program forms)

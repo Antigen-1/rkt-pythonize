@@ -14,6 +14,96 @@ ones are listed too.  Everything before 2.0.0 was a different design -- a
 Lisp-to-Python transpiler (LB, then LE, then LM) driven by a nanopass pipeline,
 with a runtime macro system of its own; the last of those was 1.3.3.
 
+@section[#:style 'unnumbered]{3.10.5}
+
+@itemlist[
+@item{Keyword arguments, Racket's way, on both sides of a call: a parameter list
+takes @racket[#:k k] -- @racket[(define (f a #:k k) ...)], and
+@racket[lambda] with it -- and a call writes @racket[(f 1 #:k 2)].  A keyword
+parameter is keyword-only in the Python, @tt{def f(a, *, k)}, and the star
+stands where the rest parameter would, @tt{def f(a, *rest, k)}, so it is
+keyword-only where the procedure is called, as it is in Racket.}
+@item{A call writes its keyword arguments where it likes: @racket[(f 1 #:k 2 3)]
+is @tt{f(1, 3, k=2)}.  The Python puts the positional arguments first and the
+keyword ones after, which is the order Python evaluates them in.}
+@item{@tt{core/names.rkt} is the one module that says what a name is in Python.
+@racket[python-name] is the conversion, @racket[piece-name] is what a piece of
+the prelude is called, and nothing else spells a Python name out -- and the
+conversion reads the name and @racket[python-name-style] and nothing else:
+@racket[(python-name 'even?)] is @tt{even_p}, @racket[(python-name 'set-car!)]
+is @tt{set_car_b}, a name that is a Python keyword takes a trailing @tt{_} and
+one that starts with a digit takes a leading one.}
+@item{@racket[python-name-style] is a parameter, @racket['snake] by default and
+@racket['camel] otherwise, so a module says how its names are spelled:
+@racket[(begin-for-syntax (python-name-style 'camel))] before its
+@racket[#%python-code] forms compiles @racket[even?] to @tt{evenP} and
+@racket[object-ref] to @tt{objectRef}.  With @racket['camel] the letter after a
+@racket[-] is capitalized, and a @racket[-] with no letter after it is joined
+instead, so no name is lost.  @racket[python-name] takes a prefix and a suffix
+too, Python text around the conversion, which is how the compiler names what it
+lifts.  @racket[python-name], @racket[python-name-style],
+@racket[runtime-names] and @racket[python-builtins] are provided at the phase
+the compiler runs in, where they were only in @tt{core/names.rkt} before.}
+@item{Every name of a program is @racket[python-name] of the name the source
+wrote and nothing else, so the Python name of a top-level define is knowable
+from the source alone -- which is what a program that exports its names reads.
+A name the compiler makes up for itself -- @tt{_lift_3f9a1b2c} for a lifted
+procedure, @tt{_lift_3f9a1b2c_inner} for one the program called @tt{inner} -- is
+made of a UUID, so it is not one the program writes and a lifted procedure
+cannot take a program's name.  What a check compares is the
+Python name, in both directions: two top-level names that are one Python name
+(@racket[x-y] and @racket[x_y]) are a compile error rather than one silently
+overwriting the other, a parameter list that spells one Python name twice is
+refused, a call that gives one keyword two values under two spellings of it is
+refused rather than left to a Python @tt{SyntaxError}, and a name written as it
+is in Python is the name the program defined -- @racket[(define x-y 1)] with
+@racket[(set! x_y 2)] somewhere is that one variable, which the scope check
+knows and does not warn about.}
+@item{A keyword's name is converted as a name is -- @racket[#:foo-bar] is
+@tt{foo_bar} in one style and @tt{fooBar} in the other -- and a call converts
+the keyword it writes whether or not the program defines the procedure it calls,
+so @racket[(sorted xs #:reverse #t)] is @tt{sorted(xs, reverse=True)}.  A piece
+that answers to an LE name is named by the same conversion, so
+@racket[(object-ref xs 0)] and its @tt{def} agree in either style.  In Python a
+keyword and the parameter it fills are one name, so a parameter list spells it
+twice, @racket[#:k k]; @racket[(define (f #:k v) v)] is a compile error.}
+@item{The prelude's names carry @racket[prelude-prefix], an identifier's worth
+of a UUID the compiler asks for once a run (@tt{uuid}, a new dependency), so no
+name a program writes is one of the prelude's: a
+program may define @racket[list], @racket[apply] or @tt{_raise}, and its own is
+what the name means where it is bound, while the pieces the compiler calls
+itself -- @racket[(raise e)], @racket[(with-handler ...)], the rest parameter of
+a lifted procedure that captures -- are the prefixed ones and out of the
+program's reach.  Pin the prefix to have the same Python every time, or to
+nothing to read the prelude as it is written; the manual's examples pin it to
+nothing.}
+@item{A keyword is syntax, not data: it belongs in a call or in a parameter
+list, and nowhere else.  A keyword in an expression position or a statement
+position, a @racket[set!] of one, and a keyword inside quoted data or inside a
+literal (@racket[(quote #:k)], @racket[#(1 #:k)]) are compile errors now, the
+last two where the form is, rather than at render time.}
+@item{@racket[defmacro] takes keyword arguments too: a transformer is a Racket
+procedure, so @racket[(defmacro (m x #:k k) ...)] is called
+@racket[(m 1 #:k 2)], a macro's keyword is not converted -- two of them are two
+keywords there whatever they would be in Python -- and one may carry a default,
+@racket[#:k [k 5]], which a procedure's may not.  A call that names a keyword
+the transformer does not take, or leaves out one it needs, is a compile error
+that says which.}
+@item{@tt{core/params.rkt}: the parameter list @racket[define] and
+@racket[lambda] share and the arguments a call hands a procedure.  A parameter
+that is not a name, a keyword with no parameter and an argument that writes one
+keyword twice are compile errors now, all of them Python's own rules.
+@tt{core/lift.rkt} carries keyword parameters through a lift and the reference
+it makes, and @tt{core/render.rkt} renders a signature keyword-only.}
+@item{@racket[apply] carries a keyword argument to the function it calls, since
+that is the function the keyword is for: @racket[(apply f xs #:k v)] is
+@tt{f(*xs, k=v)}, and the piece takes @tt{**keywords}.  A lifted procedure that
+captures, takes a rest parameter and takes keywords passes all three on, which
+is what that piece is for.}
+@item{@tt{tests/names.rkt} pins the conversion character by character in both
+styles, and @tt{tests/camel.rkt} is a module that set the style and renders its
+own forms.}]
+
 @section[#:style 'unnumbered]{3.9.5}
 
 @itemlist[

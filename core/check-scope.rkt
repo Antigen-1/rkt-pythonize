@@ -8,9 +8,14 @@
 ;; name the program never binds is worth saying out loud: the compiler logs it
 ;; at warning level, for a reference and for a set! alike.
 ;;
-;; names.rkt owns what a Python program can call without the source defining it.
+;; What is compared is the Python name: x-y and x_y are one name in the module
+;; the program becomes, so a program that defines one and writes the other has
+;; defined it, whichever way round they are written.  core/names.rkt is the one
+;; conversion, and names.rkt also says what a Python program can call without
+;; the source defining it.
 
-(require "names.rkt")
+(require "names.rkt"
+         "params.rkt")
 
 (provide check-scope-program)
 
@@ -22,18 +27,20 @@
 (define (target-name target)
   (if (identifier? target) (syntax-e target) (syntax-e (car (syntax-e target)))))
 
-(define (params-of sig)
-  (define (walk rest acc)
-    (cond [(null? rest) (reverse acc)]
-          [(pair? rest) (walk (cdr rest) (cons (syntax-e (car rest)) acc))]
-          [else (reverse (cons (syntax-e rest) acc))]))
-  (walk sig '()))
+;; every Python name a parameter list binds: the positional parameters, the
+;; parameters of its keywords, and its rest parameter
+(define (signature-names sig)
+  (define-values (params keywords rest) (signature-parts sig))
+  (for/list ([name (in-list (append params
+                                    (map keyword-param-name keywords)
+                                    (if rest (list rest) '())))])
+    (python-name name)))
 
-(define (define-params target) (params-of (cdr (syntax-e target))))
-(define (lambda-params target) (params-of (syntax-e target)))
+(define (define-params target) (signature-names (cdr (syntax->datum target))))
+(define (lambda-params target) (signature-names (syntax->datum target)))
 (define (body-defines forms)
   (for/list ([f (in-list forms)] #:when (define? f))
-    (target-name (cadr (syntax->list f)))))
+    (python-name (target-name (cadr (syntax->list f))))))
 
 (define module-names '())
 (define warned '())
@@ -44,12 +51,13 @@
     (log-warning "rkt-pythonize: ~a" message)))
 
 (define (in-scope? env sym)
-  (or (and (member sym env) #t) (and (member sym module-names) #t)))
+  (define name (python-name sym))
+  (or (and (member name env) #t) (and (member name module-names) #t)))
 
 (define (check-scope-program forms)
   (set! module-names
         (for/list ([f (in-list forms)] #:when (define? f))
-          (target-name (cadr (syntax->list f)))))
+          (python-name (target-name (cadr (syntax->list f))))))
   (set! warned '())
   (for ([f (in-list forms)]) (check f '()))
   forms)
@@ -60,7 +68,7 @@
          (unless (or (in-scope? env sym) (known-runtime-name? sym))
            (warn-once!
             (format "no definition of ~a in this program: it becomes the Python name ~a"
-                    sym (munged sym))))]
+                    sym (python-name sym))))]
         [(not (syntax->list stx)) (void)]
         [else
          (define parts (syntax->list stx))

@@ -20,8 +20,18 @@
 ;; any number of bodies, cond, raise, with-handler and trampoline, and quoted
 ;; data without symbols.  There are no macros and no eval inside it: a macro is
 ;; written outside it, in Racket, with defmacro.
+;;
+;; core/names.rkt says what a name is in Python, and it is provided here at the
+;; phase the compiler runs in, so a module can say what its program's names are
+;; and how they are spelled before the forms that use them:
+;;
+;;   (begin-for-syntax (python-name-style 'camel))   how a name is joined
+;;   (begin-for-syntax (prelude-prefix "_pz_"))      what the prelude is called
+;;   (begin-for-syntax (runtime-names (cons 'sys (runtime-names))))
+;;   (begin-for-syntax (python-name 'object-ref))    "objectRef", now
 
 (require (for-syntax racket/base)
+         (for-syntax "core/names.rkt")
          (for-syntax "core/expand-macro.rkt")
          (for-syntax "core/expand-cond.rkt")
          (for-syntax "core/check-expression.rkt")
@@ -86,4 +96,6 @@
 
 (provide #%python-code
          defmacro
-         (for-syntax (all-from-out racket/base)))
+         (for-syntax (all-from-out racket/base))
+         (for-syntax python-name python-keyword-name python-name-style
+                     prelude-prefix runtime-names python-builtins))

@@ -56,6 +56,11 @@ and the scope check stops warning about what you added:
 (begin-for-syntax (runtime-names (cons 'sys (runtime-names))))
 ```
 
+`core/names.rkt` is also the one module that says what a name is in
+Python, and `core/params.rkt` is the one the parameter list of `define`
+and `lambda`, the arguments a call hands a procedure and the keyword
+arguments in both come from.
+
 ## LE
 
 Inside `#%python-code` the language is LE, a small Lisp in Racket’s
@@ -70,8 +75,8 @@ handler runs where it stands, and a value position guards it.
 ```racket
 s ::= e                                  an expression, for its value or its effect             
     | (define x e)                       bind a value                                           
-    | (define (x x* ...) s* ...)         bind a procedure                                       
-    | (define (x x* ... . rest) s* ...)  bind a procedure; the rest parameter                   
+    | (define (x p* ...) s* ...)         bind a procedure                                       
+    | (define (x p* ... . rest) s* ...)  bind a procedure; the rest parameter                   
     |                                    collects the arguments into a list                     
     | (set! x e)                         assign                                                 
     | (begin s ...)                      a sequence, of statements here                         
@@ -82,14 +87,18 @@ e ::= x                                  variable, a Python global
     | l                                  self-evaluating literal                                
     | 'd                                 quoted datum                                           
     | (import x)                          the module the name or string x names                 
-    | (lambda (x* ...) s* ...)           a procedure, lifted like a define                      
+    | (lambda (p* ...) s* ...)           a procedure, lifted like a define                      
     | (if e1 e2 e3)                      conditional                                            
     | (cond [e e* ...] ...)              the first clause whose test is true; else is last      
     | (begin e1 e* ...)                  a sequence, of expressions here                        
     | (raise e1)                         raise an exception                                     
     | (with-handler e1 s* ...)           run the body with e1 handling what it raises           
     | (trampoline s* ... e)              call what the last body returns while it is a procedure
-    | (e0 e* ...)                        application                                            
+    | (e0 a* ...)                        application, with keyword arguments                    
+                                                                                                
+p ::= x | #:k x                          a parameter: positional, or the parameter              
+                                         of the keyword k                                       
+a ::= e | #:k e                          an argument: positional, or the keyword k              
                                                                                                 
 d ::= int | float | string | boolean | list | tuple | dict                                      
 l ::= int | float | string | boolean | tuple | dict                                             
@@ -125,16 +134,24 @@ true.
 dicts.  A list is a Python list, a tuple is `#(1 2)` and becomes `(1,
 2)`, and a dict is `#hash(("a" . 1))` and becomes `{"a": 1}`, so dict
 keys are strings.  There is no symbol type, so quoting a symbol is a
-compile error, and there is no `eval` and no `gensym`.
+compile error, and there is no `eval` and no `gensym`: the one way a
+program makes a name of its own is `gensym` in a macro, and a macro is
+the one place to ask for it.  A keyword is not data either: `#:k` is the
+syntax of a keyword argument, so `'#:k` and `#(1 #:k)` are compile
+errors too.
 
 ## Names
 
 * A free identifier is a Python global: `(print (len "abc"))` becomes
   `print(len("abc"))`.
 
-* Names are munged into readable Python identifiers: `even?` is
-  `even_p`, `set-car!` is `set_car_b`, `object-ref` is `object_ref`, and
-  a name that is a Python keyword gets a trailing `_`.
+* `core/names.rkt` owns what a name is in Python: `python-name` is the
+  conversion, `python-keyword-name` is a keyword argument’s name,
+  `piece-name` is what a piece is called, no pass spells a Python name
+  out, and the conversion reads the name and `python-name-style` and
+  nothing else.  The Python name of a top-level define is therefore
+  knowable from the source alone, which is what a program that exports
+  its names reads.  The rules are below.
 
 * Operators are **syntax**, not procedures.  With two or more operands
   they are infix: `+ - * / quotient modulo expt`, `& | ^ << >>`, `= not=
@@ -155,10 +172,10 @@ compile error, and there is no `eval` and no `gensym`.
 
 ```racket
 source                          Python           
-(raise e)                       _raise, _Raised  
-(with-handler h e ...)          _with_handler    
-(trampoline s* ... e)           _trampoline      
-begin in an expression          _begin           
+(raise e)                       raise_, Raised   
+(with-handler h e ...)          with_handler     
+(trampoline s* ... e)           trampoline       
+begin in an expression          begin            
 (import x)                      import_module    
 (list 1 2)                      list             
 (apply f xs)                    apply            
@@ -169,6 +186,124 @@ begin in an expression          _begin
 (object-set-attr! xs "a" 1)     object_set_attr_b
 (object-has-attr? xs "append")  object_has_attr_p
 ```
+
+Each of those names is what the piece is called under the prefix
+`prelude-prefix` – an identifier’s worth of a UUID, which the compiler
+asks for once a run – so no name a program writes is one of the
+prelude’s.  Pin it to nothing and the names read as the table does.  A
+piece that answers to an LE name – the last eight – is named by the same
+conversion as any name, so the call and the `def` agree in either style:
+`(object-ref xs 0)` is `object_ref(xs, 0)` in one and `objectRef(xs, 0)`
+in the other.  A name a program gives its own definition is the
+program’s own where it is bound – a program that defines `list` gets its
+own `list`, as it would in Python – while the compiler’s own calls to a
+piece are the prefixed ones and out of the program’s reach.
+
+### The conversion
+
+A `-` ends a word of a name, `?` and `!` are words of their own – the
+predicate and the bang – and a name that is a Python keyword takes a
+trailing `_` while one that starts with a digit takes a leading one:
+
+```racket
+name                'snake, the default   'camel                                     
+even?               even_p                 evenP                                     
+set-car!            set_car_b              setCarB                                   
+object-ref          object_ref             objectRef                                 
+a--b                a__b                   a_B                                       
+a-                  a_                     a_                                        
+class               class_                 class_    a Python keyword                
+1st                 _1st                   _1st      a name cannot start with a digit
+```
+
+With `'snake` the words are joined with `_`; with `'camel` the letter
+after a `-` is capitalized instead, and a `-` that has no letter after
+it is joined, so no name is lost.
+
+A name that already spells its Python name – one with an `_` in it – is
+left as it is, so a Python keyword argument that is not one word can be
+written exactly: `#:format_spec` is `format_spec` in either style.
+
+`python-name-style` is the parameter that chooses, and it is set where
+the compiler runs, before the forms it is meant for:
+
+```racket
+(begin-for-syntax (python-name-style 'camel))
+```
+
+`python-name` is provided at that phase too, so `(begin-for-syntax
+(python-name 'object-ref))` is the name a form would use.  `python-name`
+takes a prefix and a suffix as well, which are Python text put around
+the conversion and not converted themselves.
+
+A keyword argument’s name is converted as a name is – `#:foo-bar` is
+`foo_bar` in one style and `fooBar` in the other – and the keyword a
+Python function takes is converted the same way, whether or not the
+program defines the procedure it calls.
+
+A name the compiler makes up for itself is `_lift_3f9a1b2c`, or
+`_lift_3f9a1b2c_inner` for a procedure the program called `inner`, and
+the prelude’s names carry a prefix of the same kind: the compiler takes
+both from a UUID, so no name it makes up is one a program wrote, and a
+name the program defines at the top level is its own in the Python.  Two
+top-level names that are one Python name – `x-y` and `x_y` – are a
+compile error, so a name of the program is one name in the module.  What
+is compared is the Python name in both directions, so a program that
+defines `x-y` and writes `x_y` anywhere – a call, a reference, a `set!`
+– is writing the name it defined, and a parameter list that spells one
+Python name twice is refused as well.
+
+## Keyword arguments
+
+A parameter list takes keyword parameters, written `#:k k`, and a call
+hands a procedure keyword arguments the same way:
+
+```racket
+(define (area w #:height height)        def area(w, *, height):
+    (* w height))                           return (w * height)
+(area 3 #:height 4)                     area(3, height=4)      
+```
+
+The star is what makes `height` keyword-only in Python, and it stands
+where the rest parameter would: `(define (f a #:k k . rest) ...)` is
+`def f(a, *rest, k)`.  A keyword parameter is keyword-only where the
+procedure is called, as it is in Racket.
+
+A keyword’s name is a name, converted as a name is: `#:foo-bar` is
+`foo_bar` and `#:even?` is `even_p`.  In Python a keyword and the
+parameter it fills are one name, so the parameter has to be that name –
+`#:k k`, and not `#:k v`, which is a compile error.  The same conversion
+names the keyword a Python function takes, whether or not the program
+defines the procedure:
+
+```racket
+(sorted xs #:reverse #t)                sorted(xs, reverse=True)
+(round x #:ndigits 2)                   round(x, ndigits=2)     
+```
+
+A call writes its keyword arguments where it likes, Racket’s way; the
+Python it renders puts the positional arguments first and the keyword
+ones after, which is also the order Python evaluates them in:
+
+```racket
+(f 1 #:k 2 3)                           f(1, 3, k=2)
+```
+
+A keyword is syntax, not a value: it names an argument where a call
+writes one and a parameter where a parameter list takes one, and it is
+never a datum, so `'#:k` is refused.  One keyword takes one value, and
+two arguments that are one Python name after the conversion – `#:x-y`
+and `#:x_y` – are the one keyword, which is a compile error rather than
+the `SyntaxError` Python would raise.
+
+`apply` carries a keyword argument to the function it calls, which is
+the function the keyword is for: `(apply f xs #:k v)` is `f(*xs, k=v)`.
+
+A macro takes keyword arguments too – `(defmacro (m x #:k k) ...)` is
+called `(m 1 #:k 2)` – and a transformer is a Racket procedure, so those
+keywords are Racket’s: they are not converted, one may carry a default,
+`#:k [k 5]`, and two of them are two keywords over there whatever they
+would be in Python.
 
 ## Truth and tail calls
 
@@ -279,9 +414,10 @@ $ PLTCOLLECTS="$PWD/..:" TMPDIR="$PWD/.tmp" raco test tests/
 ```
 
 The tests use the macro directly, look at the Python it renders, and run
-it with `python3`.  `PLTCOLLECTS` is only needed when an older copy of
-the package is installed; with the package installed, `raco test -x -p
-rkt-pythonize` is enough.
+it with `python3`; `tests/names.rkt` pins the conversion itself,
+character by character and in both styles.  `PLTCOLLECTS` is only needed
+when an older copy of the package is installed; with the package
+installed, `raco test -x -p rkt-pythonize` is enough.
 
 ## Layout
 
@@ -292,7 +428,11 @@ core/check-scope.rkt         LE -> LE: lexical scope and warnings
 core/explicit.rkt            LE -> LL: make-explicit                      
 core/lift.rkt                LL -> LB: procedures lifted to the top level 
 core/render.rkt              LB -> Python                                 
+core/names.rkt               what a name is in Python, and the name tables
+core/params.rkt              parameter lists, and the arguments of a call 
 tests/dsl.rkt                end-to-end tests                             
+tests/names.rkt              the conversion, character by character       
+tests/camel.rkt              a module that set the name style             
 scribblings/rkt-pythonize.scrbl  the manual                               
 scribblings/readme.scrbl     the README, also the manual's first chapter  
 scribblings/changelog.scrbl  the changelog, also the manual's last chapter

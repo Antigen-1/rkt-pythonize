@@ -7,11 +7,14 @@
 
 (require rkt-pythonize)
 
-(provide twice a.twice)
+(provide twice a.twice tagged)
 
 (defmacro (twice form) `(begin ,form ,form))
 
 (defmacro #:space a (twice form) `(begin (print "a:") ,form ,form))
+
+;; a keyword argument reaches a macro across a module boundary like any other
+(defmacro (tagged x #:tag tag) `(list ,tag ,x))
 
 (module+ test
   (require rackunit racket/string)

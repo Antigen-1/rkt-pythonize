@@ -21,8 +21,16 @@
 ;;
 ;; This pass runs first, so a macro may expand into anything LE has, cond
 ;; included, and into another macro.
+;;
+;; A macro's transformer is a Racket procedure, so a keyword argument of a macro
+;; call is Racket's: it is not converted, and it reaches the transformer as it
+;; written.  The transformer is applied with keyword-apply, which is what
+;; carries them, and the call is checked against the keywords the transformer
+;; takes -- procedure-arity-includes? counts a keyword as an argument, so the
+;; positional arity is counted here instead.
 
-(require racket/list)
+(require racket/list
+         "params.rkt")
 
 (provide expand-macro-program
          le-macro
@@ -158,17 +166,21 @@
 (define (apply-macro id macro args stx budget)
   (spend! stx budget)
   (define proc (le-macro-proc macro))
-  (define given (length args))
-  (unless (procedure-arity-includes? proc given)
-    (not-le stx (format "the macro ~a takes ~a, and is given ~a argument~a"
-                        (macro-label id macro) (arity-text (procedure-arity proc))
-                        given (if (= given 1) "" "s"))))
+  ;; a macro's keywords are Racket's: two of them are one only when Racket says
+  ;; so, which is why the names here are not converted
+  (define-values (positional keywords)
+    (argument-parts args (lambda (message) (not-le stx message))
+                    #:keyword-name keyword->string))
+  (check-arguments id macro proc positional keywords stx)
   (define result
     (with-handlers ([exn:fail?
                      (lambda (e)
                        (not-le stx (format "the macro ~a failed: ~a"
                                            (macro-label id macro) (exn-message e))))])
-      (apply proc (for/list ([a (in-list args)]) (syntax->datum a)))))
+      (keyword-apply proc
+                     (for/list ([keyword (in-list keywords)]) (car keyword))
+                     (for/list ([keyword (in-list keywords)]) (syntax->datum (cadr keyword)))
+                     (for/list ([a (in-list positional)]) (syntax->datum a)))))
   (cond [(form-datum? result) (mk stx result)]
         [(syntax? result)
          (not-le stx (format "the macro ~a returned a syntax object: a defmacro returns the form to use as data"
@@ -176,6 +188,34 @@
         [else
          (not-le stx (format "the macro ~a expanded into ~s, which is not a form"
                              (macro-label id macro) result))]))
+
+;; the call against the transformer: the positional arguments against its
+;; arity, and the keywords against the ones it takes
+(define (check-arguments id macro proc positional keywords stx)
+  (define label (macro-label id macro))
+  (define arity (procedure-arity proc))
+  (define given (length positional))
+  (unless (arity-accepts? arity given)
+    (not-le stx (format "the macro ~a takes ~a, and is given ~a argument~a"
+                        label (arity-text arity) given (if (= given 1) "" "s"))))
+  (define-values (required accepted) (procedure-keywords proc))
+  (define given-keywords (map car keywords))
+  (for ([keyword (in-list given-keywords)])
+    (unless (memq keyword accepted)
+      (not-le stx (format "the macro ~a does not take the keyword ~a" label keyword))))
+  (for ([keyword (in-list required)])
+    (unless (memq keyword given-keywords)
+      (not-le stx (format "the macro ~a needs the keyword ~a, and is not given it"
+                          label keyword)))))
+
+;; a procedure that takes keywords answers procedure-arity with its positional
+;; arity, and procedure-arity-includes? counts a keyword as an argument, so the
+;; count is made here
+(define (arity-accepts? arity n)
+  (cond [(integer? arity) (= arity n)]
+        [(arity-at-least? arity) (>= n (arity-at-least-value arity))]
+        [(list? arity) (for/or ([a (in-list arity)]) (arity-accepts? a n))]
+        [else #f]))
 
 ;; each expansion spends one from the budget, so a macro that expands into
 ;; itself stops with an error instead of running forever

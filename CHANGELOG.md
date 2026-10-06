@@ -6,6 +6,107 @@ design – a Lisp-to-Python transpiler (LB, then LE, then LM) driven by a
 nanopass pipeline, with a runtime macro system of its own; the last of
 those was 1.3.3.
 
+## 3.10.5
+
+* Keyword arguments, Racket’s way, on both sides of a call: a parameter
+  list takes `#:k k` – `(define (f a #:k k) ...)`, and `lambda` with it
+  – and a call writes `(f 1 #:k 2)`.  A keyword parameter is
+  keyword-only in the Python, `def f(a, *, k)`, and the star stands
+  where the rest parameter would, `def f(a, *rest, k)`, so it is
+  keyword-only where the procedure is called, as it is in Racket.
+
+* A call writes its keyword arguments where it likes: `(f 1 #:k 2 3)` is
+  `f(1, 3, k=2)`.  The Python puts the positional arguments first and
+  the keyword ones after, which is the order Python evaluates them in.
+
+* `core/names.rkt` is the one module that says what a name is in Python.
+  `python-name` is the conversion, `piece-name` is what a piece of the
+  prelude is called, and nothing else spells a Python name out – and the
+  conversion reads the name and `python-name-style` and nothing else:
+  `(python-name 'even?)` is `even_p`, `(python-name 'set-car!)` is
+  `set_car_b`, a name that is a Python keyword takes a trailing `_` and
+  one that starts with a digit takes a leading one.
+
+* `python-name-style` is a parameter, `'snake` by default and `'camel`
+  otherwise, so a module says how its names are spelled:
+  `(begin-for-syntax (python-name-style 'camel))` before its
+  `#%python-code` forms compiles `even?` to `evenP` and `object-ref` to
+  `objectRef`.  With `'camel` the letter after a `-` is capitalized, and
+  a `-` with no letter after it is joined instead, so no name is lost.
+  `python-name` takes a prefix and a suffix too, Python text around the
+  conversion, which is how the compiler names what it lifts.
+  `python-name`, `python-name-style`, `runtime-names` and
+  `python-builtins` are provided at the phase the compiler runs in,
+  where they were only in `core/names.rkt` before.
+
+* Every name of a program is `python-name` of the name the source wrote
+  and nothing else, so the Python name of a top-level define is knowable
+  from the source alone – which is what a program that exports its names
+  reads. A name the compiler makes up for itself – `_lift_3f9a1b2c` for
+  a lifted procedure, `_lift_3f9a1b2c_inner` for one the program called
+  `inner` – is made of a UUID, so it is not one the program writes and a
+  lifted procedure cannot take a program’s name.  What a check compares
+  is the Python name, in both directions: two top-level names that are
+  one Python name \(`x-y` and `x_y`) are a compile error rather than one
+  silently overwriting the other, a parameter list that spells one
+  Python name twice is refused, a call that gives one keyword two values
+  under two spellings of it is refused rather than left to a Python
+  `SyntaxError`, and a name written as it is in Python is the name the
+  program defined – `(define x-y 1)` with `(set! x_y 2)` somewhere is
+  that one variable, which the scope check knows and does not warn
+  about.
+
+* A keyword’s name is converted as a name is – `#:foo-bar` is `foo_bar`
+  in one style and `fooBar` in the other – and a call converts the
+  keyword it writes whether or not the program defines the procedure it
+  calls, so `(sorted xs #:reverse #t)` is `sorted(xs, reverse=True)`.  A
+  piece that answers to an LE name is named by the same conversion, so
+  `(object-ref xs 0)` and its `def` agree in either style.  In Python a
+  keyword and the parameter it fills are one name, so a parameter list
+  spells it twice, `#:k k`; `(define (f #:k v) v)` is a compile error.
+
+* The prelude’s names carry `prelude-prefix`, an identifier’s worth of a
+  UUID the compiler asks for once a run (`uuid`, a new dependency), so
+  no name a program writes is one of the prelude’s: a program may define
+  `list`, `apply` or `_raise`, and its own is what the name means where
+  it is bound, while the pieces the compiler calls itself – `(raise e)`,
+  `(with-handler ...)`, the rest parameter of a lifted procedure that
+  captures – are the prefixed ones and out of the program’s reach.  Pin
+  the prefix to have the same Python every time, or to nothing to read
+  the prelude as it is written; the manual’s examples pin it to nothing.
+
+* A keyword is syntax, not data: it belongs in a call or in a parameter
+  list, and nowhere else.  A keyword in an expression position or a
+  statement position, a `set!` of one, and a keyword inside quoted data
+  or inside a literal (`'#:k`, `#(1 #:k)`) are compile errors now, the
+  last two where the form is, rather than at render time.
+
+* `defmacro` takes keyword arguments too: a transformer is a Racket
+  procedure, so `(defmacro (m x #:k k) ...)` is called `(m 1 #:k 2)`, a
+  macro’s keyword is not converted – two of them are two keywords there
+  whatever they would be in Python – and one may carry a default, `#:k
+  [k 5]`, which a procedure’s may not.  A call that names a keyword the
+  transformer does not take, or leaves out one it needs, is a compile
+  error that says which.
+
+* `core/params.rkt`: the parameter list `define` and `lambda` share and
+  the arguments a call hands a procedure.  A parameter that is not a
+  name, a keyword with no parameter and an argument that writes one
+  keyword twice are compile errors now, all of them Python’s own rules.
+  `core/lift.rkt` carries keyword parameters through a lift and the
+  reference it makes, and `core/render.rkt` renders a signature
+  keyword-only.
+
+* `apply` carries a keyword argument to the function it calls, since
+  that is the function the keyword is for: `(apply f xs #:k v)` is
+  `f(*xs, k=v)`, and the piece takes `**keywords`.  A lifted procedure
+  that captures, takes a rest parameter and takes keywords passes all
+  three on, which is what that piece is for.
+
+* `tests/names.rkt` pins the conversion character by character in both
+  styles, and `tests/camel.rkt` is a module that set the style and
+  renders its own forms.
+
 ## 3.9.5
 
 * `defmacro`: a macro written outside `#%python-code`, in Racket, whose

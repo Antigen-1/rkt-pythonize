@@ -12,8 +12,18 @@
 ;; enclosing scopes bind to a variable is captured, a name the body binds itself
 ;; (a parameter, or a define) is not, and a name the program never binds is a
 ;; Python global, which a top-level def can reach on its own.
+;;
+;; A parameter list is core/params.rkt's: the positional parameters, the keyword
+;; parameters and the rest parameter all bind names, and a keyword parameter is
+;; one more local a lifted procedure receives -- or captures -- like any other.
+;;
+;; A lifted procedure is a top-level def, so its name is a Python name of the
+;; module: core/names.rkt makes it up out of a UUID, which is what keeps a name
+;; the program defines at the top level its own.
 
-(require racket/list)
+(require racket/list
+         "names.rkt"
+         "params.rkt")
 
 (provide lift-program)
 
@@ -21,16 +31,16 @@
 ;; procedure, the fact that the program defines it at the top level (a Python
 ;; global, so nothing to pass), or a binder of the form being walked
 (struct var (id) #:transparent)
-(struct proc (lifted params rest captured) #:mutable #:transparent)
+(struct proc (lifted params keywords rest captured) #:mutable #:transparent)
 (struct inner () #:transparent)
 (define inner-binding (inner))
 
 (define counter 0)
 (define (next-id) (set! counter (add1 counter)) counter)
 
-(define (fresh base)
-  (string->symbol
-   (format "_lift~a~a" (next-id) (if (eq? base 'lambda) "" (format "_~a" base)))))
+;; the name a lifted procedure takes: the procedure's own name, or #f for a
+;; lambda, which is all core/names.rkt needs to make one up
+(define (fresh base) (generated-name base))
 
 (define (head stx) (and (pair? (syntax->list stx)) (syntax-e (car (syntax->list stx)))))
 (define (mk stx datum) (datum->syntax stx datum))
@@ -47,17 +57,9 @@
 (define (not-le stx message)
   (error 'lift "~a: ~a: ~a" (form-location stx) message (syntax->datum stx)))
 
-;; (x y . rest) -> the parameters, and the rest parameter or #f
-(define (list-params sig)
-  (define (walk rest acc)
-    (cond [(null? rest) (values (reverse acc) #f)]
-          [(pair? rest) (walk (cdr rest) (cons (syntax-e (car rest)) acc))]
-          [else (values (reverse acc) (syntax-e rest))]))
-  (walk sig '()))
-
-;; a define target is a signature: (f x y . rest)
-(define (param-names target)
-  (list-params (cdr (syntax-e target))))
+;; a define target is a signature: (f x y #:k k . rest)
+(define (param-parts target)
+  (signature-parts (cdr (syntax->datum target))))
 
 (define (target-name target)
   (if (identifier? target) (syntax-e target) (syntax-e (car (syntax-e target)))))
@@ -84,16 +86,17 @@
               (cond [(identifier? target) (walk (caddr parts) env)]
                     [else (walk-body (cddr parts) (bind-define-params target env))])]
              [else (for ([p (in-list parts)]) (walk p env))])]))
-  (define (bind-names params rest env)
-    (define env* (for/fold ([env env]) ([p (in-list params)])
+  (define (bind-names params keywords rest env)
+    (define bound (append params (map keyword-param-name keywords)))
+    (define env* (for/fold ([env env]) ([p (in-list bound)])
                    (cons (cons p inner-binding) env)))
     (if rest (cons (cons rest inner-binding) env*) env*))
   (define (bind-lambda-params target env)
-    (define-values (params rest) (list-params (syntax-e target)))
-    (bind-names params rest env))
+    (define-values (params keywords rest) (signature-parts (syntax->datum target)))
+    (bind-names params keywords rest env))
   (define (bind-define-params target env)
-    (define-values (params rest) (param-names target))
-    (bind-names params rest env))
+    (define-values (params keywords rest) (param-parts target))
+    (bind-names params keywords rest env))
   (define (walk-body forms env)
     ;; a body binds what it defines: its own names are not a capture
     (define env* (for/fold ([env env]) ([f (in-list forms)] #:when (define? f))
@@ -124,18 +127,20 @@
          (cond [(identifier? target)
                 (mk f (list 'define target (lift (caddr (syntax->list f)) env '())))]
                [else
-                ;; a top-level procedure keeps its name
-                (define-values (params rest) (param-names target))
+                ;; a top-level procedure keeps its name, and its keyword
+                ;; parameters, which are the Python names a call writes
+                (define-values (params keywords rest) (param-parts target))
                 (when (null? (cddr (syntax->list f))) (not-le f "a procedure needs a body"))
-                (define env* (bind-params params rest env))
+                (define env* (bind-params params keywords rest env))
                 (define body (lift-body (cddr (syntax->list f)) env* '()))
                 (mk f (list* 'define
-                             (mk f (cons (target-name target)
-                                         (if rest (append params rest) params)))
+                             (mk f (signature-datum
+                                    (cons (target-name target) params) keywords rest))
                              body))])]))
 
-(define (bind-params params rest env)
-  (define env* (for/fold ([env env]) ([p (in-list params)])
+(define (bind-params params keywords rest env)
+  (define bound (append params (map keyword-param-name keywords)))
+  (define env* (for/fold ([env env]) ([p (in-list bound)])
                  (cons (cons p (var (next-id))) env)))
   (if rest (cons (cons rest (var (next-id))) env*) env*))
 
@@ -154,8 +159,8 @@
     (cond [(identifier? target)
            (values (cons (cons (syntax-e target) (var (next-id))) env) procs)]
           [else
-           (define-values (params rest) (param-names target))
-           (define p (proc (fresh (target-name target)) params rest '()))
+           (define-values (params keywords rest) (param-parts target))
+           (define p (proc (fresh (target-name target)) params keywords rest '()))
            (values (cons (cons (target-name target) p) env) (append procs (list (list f p))))])))
 
 (define (lift-proc entry env)
@@ -165,26 +170,32 @@
   (when (null? body-forms) (not-le f "a procedure needs a body"))
   (define captured (proc-captured p))
   (define names (map car captured))
-  (define env* (bind-params (proc-params p) (proc-rest p) env))
-  (define all-params (append names (proc-params p)))
+  (define env* (bind-params (proc-params p) (proc-keywords p) (proc-rest p) env))
   (add-def (mk f (list* 'define
-                        (mk f (cons (proc-lifted p)
-                                    (if (proc-rest p)
-                                        (append all-params (proc-rest p))
-                                        all-params)))
+                        (mk f (signature-datum
+                               (cons (proc-lifted p) (append names (proc-params p)))
+                               (proc-keywords p)
+                               (proc-rest p)))
                         (lift-body body-forms env* captured)))))
 
 ;; the value of a lifted procedure where it is used as one: the define itself
-;; if it captures nothing, and a lambda that passes what it captures otherwise
-(define (reference stx lifted names params rest)
+;; if it captures nothing, and a lambda that passes what it captures otherwise.
+;; The lambda takes the procedure's own parameters -- the keyword ones included,
+;; and it hands them on by keyword -- and what it captures it reads where it
+;; stands, as the call it makes passes them first.
+(define (reference stx lifted names params keywords rest)
   (cond [(null? names) (mk stx lifted)]
         [else
-         (define target (if rest (append params rest) params))
+         (define kws (keyword-signature-datum keywords))
+         (define target (signature-datum params keywords rest))
          ;; apply takes the elements of its last argument, so the rest list is
-         ;; spread, not passed as one argument
+         ;; spread, not passed as one argument, and its keywords go to the
+         ;; function it calls
+         ;; the compiler's own call to apply, which is the runtime's however the
+         ;; program names things
          (define call (if rest
-                          (list* 'apply lifted (append names params (list rest)))
-                          (cons lifted (append names params))))
+                          (append (list (piece-call 'apply) lifted) names params kws (list rest))
+                          (append (list lifted) names params kws)))
          (mk stx (list 'lambda target call))]))
 
 (define (lift stx env current)
@@ -199,16 +210,16 @@
         (define target (cadr parts))
         (define body (cddr parts))
         (when (null? body) (not-le stx "a lambda needs a body"))
-        (define-values (params rest) (list-params (syntax-e target)))
+        (define-values (params keywords rest) (signature-parts (syntax->datum target)))
         (define captured (captures stx env))
         (define names (map car captured))
-        (define lifted (fresh 'lambda))
-        (define env* (bind-params params rest env))
-        (define all-params (append names params))
+        (define lifted (fresh #f))
+        (define env* (bind-params params keywords rest env))
         (add-def (mk stx (list* 'define
-                                (mk stx (cons lifted (if rest (append all-params rest) all-params)))
+                                (mk stx (signature-datum
+                                         (cons lifted (append names params)) keywords rest))
                                 (lift-body body env* captured))))
-        (reference stx lifted names params rest)]
+        (reference stx lifted names params keywords rest)]
        [(define)
         (define target (cadr parts))
         (cond [(identifier? target)
@@ -218,7 +229,7 @@
                (define p (lookup env (target-name target)))
                (mk stx (list 'define (target-name target)
                              (reference stx (proc-lifted p) (map car (proc-captured p))
-                                        (proc-params p) (proc-rest p))))])]
+                                        (proc-params p) (proc-keywords p) (proc-rest p))))])]
        [(set!)
         (check-set! stx env current)
         (mk stx (list 'set! (cadr parts) (lift (caddr parts) env current)))]

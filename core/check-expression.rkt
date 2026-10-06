@@ -8,9 +8,14 @@
 ;; begin in expression position are made of.  Nothing in an expression position
 ;; is a statement, so a definition cannot hide inside one and mean something
 ;; else there, and a body ends with the expression that is its value.
+;;
+;; The parameter list of a define or a lambda and the arguments of a call are
+;; checked here too, because both are places a keyword argument may stand and
+;; nowhere else is: core/params.rkt says what one is.
 
 (require racket/list
-         "names.rkt")
+         "names.rkt"
+         "params.rkt")
 
 (provide check-expression-program)
 
@@ -36,25 +41,56 @@
     module module+ case-lambda))
 
 (define (check-expression-program forms)
+  (check-module-names forms)
   (for ([f (in-list forms)]) (check-statement f))
   forms)
 
+;; Two top-level names that are one Python name are one name in the module --
+;; the second definition would be the first -- so a program that exports its
+;; names is told rather than left to wonder which one it got.  core/names.rkt
+;; says what a name is in Python, and nothing here reads a name any other way.
+(define (check-module-names forms)
+  (define seen (make-hash))
+  (for ([f (in-list forms)] #:when (eq? (head f) 'define))
+    (define target (cadr (syntax->list f)))
+    (define name (and (or (identifier? target) (pair? (syntax-e target)))
+                      (target-name target)))
+    (when name
+      (define python (python-name name))
+      (define first (hash-ref seen python #f))
+      (when (and first (not (eq? first name)))
+        (not-le f (format "~a and ~a are both ~a in Python: rename one of them"
+                          first name python)))
+      (hash-set! seen python name))))
+
+;; the name a top-level define binds
+(define (target-name target)
+  (if (identifier? target) (syntax-e target) (syntax-e (car (syntax-e target)))))
+
 ;; a statement: an expression, a definition, an assignment, a begin or an if
 (define (check-statement stx)
-  (cond [(not (syntax->list stx)) (void)]
+  (cond [(keyword? (syntax-e stx))
+         (not-le stx "a keyword argument belongs in a call: (f #:k value)")]
+        [(not (syntax->list stx)) (void)]
         [else
          (define parts (syntax->list stx))
          (case (head stx)
            [(define)
             (define target (cadr parts))
             (when (null? (cddr parts)) (not-le stx "a definition needs a body"))
-            (if (identifier? target)
-                (begin (when (not (null? (cdr (cddr parts))))
-                         (not-le stx "a value definition takes one expression"))
-                       (check-expression (caddr parts)))
-                (check-body (cddr parts)))]
+            (cond [(identifier? target)
+                   (when (not (null? (cdr (cddr parts))))
+                     (not-le stx "a value definition takes one expression"))
+                   (check-expression (caddr parts))]
+                  [(pair? (syntax-e target))
+                   (check-signature stx (cdr (syntax->datum target)))
+                   (check-body (cddr parts))]
+                  [else (not-le stx "a definition of what?")])]
            [(set!)
             (when (not (= 3 (length parts))) (not-le stx "an assignment takes one expression"))
+            ;; a keyword is syntax, not a name to assign to
+            (unless (identifier? (cadr parts))
+              (not-le stx "an assignment takes a name to assign"))
             (check-expression (caddr parts))]
            [(begin) (for ([f (in-list (cdr parts))]) (check-statement f))]
            [(if)
@@ -74,14 +110,19 @@
 
 ;; an expression: nothing inside it is a statement
 (define (check-expression stx)
-  (cond [(identifier? stx)
+  (cond [(keyword? (syntax-e stx))
+         (not-le stx "a keyword argument belongs in a call: (f #:k value)")]
+        [(identifier? stx)
          (when (memq (syntax-e stx) operators)
            (not-le stx "an operator is syntax, not a value: define a procedure instead"))]
-        [(not (syntax->list stx)) (void)]
+        ;; a literal is data, and data has no symbols and no keywords -- and a
+        ;; keyword is syntax, so it is never one
+        [(not (syntax->list stx)) (check-datum stx (syntax->datum stx))]
         [else
          (define parts (syntax->list stx))
          (case (head stx)
-           [(quote) (void)]
+           [(quote)
+            (when (= 2 (length parts)) (check-datum stx (syntax->datum (cadr parts))))]
            [(define set!) (not-le stx "a statement where an expression belongs")]
            [(import)
             (when (not (= 2 (length parts))) (not-le stx "an import takes one module"))
@@ -92,6 +133,9 @@
            [(begin) (for ([p (in-list (cdr parts))]) (check-expression p))]
            [(lambda)
             (when (null? (cddr parts)) (not-le stx "a lambda needs a body"))
+            (define sig (syntax->datum (cadr parts)))
+            (when (not (or (null? sig) (pair? sig))) (not-le stx "a lambda takes a parameter list"))
+            (check-signature stx sig)
             (check-body (cddr parts))]
            [(with-handler)
             (when (< (length parts) 3) (not-le stx "a with-handler takes a handler and a body"))
@@ -103,5 +147,37 @@
            [else
             (when (memq (head stx) racket-forms) (not-le stx "a Racket form, not LE"))
             ;; the head of a call is a name or a form, not a place for an operand
+            (when (keyword? (syntax-e (car parts)))
+              (not-le stx "a call starts with a name, not a keyword"))
             (unless (identifier? (car parts)) (check-expression (car parts)))
-            (for ([p (in-list (cdr parts))]) (check-expression p))])]))
+            (check-call-arguments stx (cdr parts) (head stx))])]))
+
+;; an operator is syntax, so it has no keyword arguments; any other call takes
+;; them, and what a keyword argument is -- and where it may stand -- is
+;; core/params.rkt's
+(define (check-call-arguments stx args name)
+  (when (and name (memq name operators)
+             (for/or ([a (in-list args)]) (keyword? (syntax-e a))))
+    (not-le stx "an operator takes no keyword arguments: an operator is syntax, not a procedure"))
+  (define-values (positional keywords)
+    (argument-parts args (lambda (message) (not-le stx message))))
+  (for ([p (in-list positional)]) (check-expression p))
+  (for ([keyword (in-list keywords)]) (check-expression (cadr keyword))))
+
+;; quoted data and a literal are data: a symbol is not (there is no symbol
+;; type), and a keyword is the syntax of an application or a parameter list
+(define (check-datum stx datum)
+  (cond [(symbol? datum) (not-le stx (format "a symbol is not data: ~a" datum))]
+        [(keyword? datum) (not-le stx (format "a keyword is not data: ~a" datum))]
+        [(list? datum) (for ([d (in-list datum)]) (check-datum stx d))]
+        [(vector? datum) (for ([d (in-list (vector->list datum))]) (check-datum stx d))]
+        [(hash? datum)
+         (for ([key (in-list (hash-keys datum))])
+           (check-datum stx key)
+           (check-datum stx (hash-ref datum key)))]
+        [else (void)]))
+
+;; a parameter list: core/params.rkt says what one is, and a form to point at
+;; makes its errors read as that form
+(define (check-signature stx sig)
+  (signature-parts sig (lambda (message) (not-le stx message))))
