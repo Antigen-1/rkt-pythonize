@@ -14,6 +14,34 @@ ones are listed too.  Everything before 2.0.0 was a different design -- a
 Lisp-to-Python transpiler (LB, then LE, then LM) driven by a nanopass pipeline,
 with a runtime macro system of its own; the last of those was 1.3.3.
 
+@section[#:style 'unnumbered]{3.9.5}
+
+@itemlist[
+@item{@racket[defmacro]: a macro written outside @racket[#%python-code], in
+Racket, whose body runs while the program is compiled on the argument forms as
+data and returns the form that takes their place.  Each macro is a syntax
+binding, so it is visible after its definition in its own module or where that
+module is required, and nowhere else; there is no hygiene, so a macro asks
+@racket[gensym] for a name of its own.}
+@item{@racket[#:space] for @racket[defmacro]: two macros may share a name if they
+live in different spaces.  The space is part of the binding's name
+(@racket[(defmacro #:space a (twice x) ...)] binds @tt{a.twice}, which is what a
+@racket[provide] and a @racket[require] carry), and @racket[(#:space a (twice
+x))] expands that macro call and its subforms in space @tt{a}; an inner
+@racket[#:space] overrides an outer one, @racket[(#:space #f ...)] is the plain
+name, and @racket[#%python-code] takes the keyword too, for a whole body.  The
+key is not one of the macro's arguments, and a @racket[#:space] form that names
+no macro is a compile error.}
+@item{@racket[(+ x)] is @racket[x], which the README and the manual have said
+since 3.6.4 and @tt{core/names.rkt}'s tables did not do: @racket[+] is in the
+prefix table now, and is still infix with two or more operands.}
+@item{@tt{core/expand-macro.rkt}, the pass that expands them.  It runs first, so
+a macro may expand into anything LE has, @racket[cond] included, and into
+another macro; a macro that expands into itself stops after a bounded number of
+expansions with an error, and so do a transformer given the wrong number of
+arguments, one that raises, and one that returns something that is not a form.
+Seven passes.}]
+
 @section[#:style 'unnumbered]{3.8.5}
 
 @itemlist[

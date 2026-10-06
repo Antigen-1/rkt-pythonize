@@ -6,6 +6,36 @@ design – a Lisp-to-Python transpiler (LB, then LE, then LM) driven by a
 nanopass pipeline, with a runtime macro system of its own; the last of
 those was 1.3.3.
 
+## 3.9.5
+
+* `defmacro`: a macro written outside `#%python-code`, in Racket, whose
+  body runs while the program is compiled on the argument forms as data
+  and returns the form that takes their place.  Each macro is a syntax
+  binding, so it is visible after its definition in its own module or
+  where that module is required, and nowhere else; there is no hygiene,
+  so a macro asks `gensym` for a name of its own.
+
+* `#:space` for `defmacro`: two macros may share a name if they live in
+  different spaces.  The space is part of the binding’s name
+  \(`(defmacro #:space a (twice x) ...)` binds `a.twice`, which is what
+  a `provide` and a `require` carry), and `(#:space a (twice x))`
+  expands that macro call and its subforms in space `a`; an inner
+  `#:space` overrides an outer one, `(#:space #f ...)` is the plain
+  name, and `#%python-code` takes the keyword too, for a whole body.
+  The key is not one of the macro’s arguments, and a `#:space` form that
+  names no macro is a compile error.
+
+* `(+ x)` is `x`, which the README and the manual have said since 3.6.4
+  and `core/names.rkt`’s tables did not do: `+` is in the prefix table
+  now, and is still infix with two or more operands.
+
+* `core/expand-macro.rkt`, the pass that expands them.  It runs first,
+  so a macro may expand into anything LE has, `cond` included, and into
+  another macro; a macro that expands into itself stops after a bounded
+  number of expansions with an error, and so do a transformer given the
+  wrong number of arguments, one that raises, and one that returns
+  something that is not a form. Seven passes.
+
 ## 3.8.5
 
 * `cond`: the body of the first clause whose test is true, with the

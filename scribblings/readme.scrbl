@@ -53,12 +53,13 @@ and no Racket form is redefined or shadowed.  The macro is the whole interface.
 
 @section[#:style 'unnumbered]{Pipeline}
 
-@racket[#%python-code] runs six passes, and only the last one writes Python:
+@racket[#%python-code] runs seven passes, and only the last one writes Python:
 
 @; the tables are hand-aligned text in a boxed block: the Markdown backend has no
 @; table, and its flattened one runs cells together where a cell fills a column
 @plain-code|{
 pass                        in    out     what it does
+core/expand-macro.rkt       LE    LE      a defmacro's macro is expanded where its name is bound
 core/expand-cond.rkt        LE    LE      a cond becomes nested ifs, each clause body a begin
 core/check-expression.rkt   LE    LE      refuses a statement where an expression belongs, and a Racket form that is not LE
 core/check-scope.rkt        LE    LE      logs a warning for a name the program never binds
@@ -214,9 +215,65 @@ does not wrap one, so the thunk is yours to write.
 
 @section[#:style 'unnumbered]{Macros and reaching outside}
 
-LE has no macros, because a Racket macro is the better place for sugar: write
-the sugar in Racket and let it expand to @racket[#%python-code], or build the LE
-forms as data and hand them to the macro:
+A macro is written outside the program, in Racket, with @racket[defmacro], and
+used inside @racket[#%python-code]:
+
+@codeblock|{
+(defmacro (twice form) `(begin ,form ,form))
+
+(define python
+  (#%python-code
+    (twice (print "hi"))))
+}|
+
+The body runs while the program is compiled, on the argument forms as data, and
+what it returns takes their place; a macro may expand into anything LE has,
+@racket[cond] included, and into another macro.  There is no hygiene: the
+expansion is re-syntaxed where it is used, so a name the macro writes can
+capture one the program already has -- ask @racket[gensym] for a name of its
+own when that matters:
+
+@codeblock|{
+(defmacro (bind-tmp value body)
+  (define name (gensym 'tmp))
+  `(begin (define ,name ,value) ,body))
+}|
+
+A macro is a syntax binding: it is visible after the @racket[defmacro] in its
+own module, or in a module that requires the one that wrote it, and nowhere
+else, so a macro has to be defined before the @racket[#%python-code] form that
+uses it.  A macro's name shadows an LE name of the same name inside the program.
+
+Two macros may share a name if they live in different spaces.  The space is part
+of the binding's name, so @racket[(defmacro #:space math (twice form) ...)]
+binds @tt{math.twice}, and @racket[#:space] at the front of a form says which
+space that form and its subforms are in:
+
+@codeblock|{
+(defmacro #:space math (twice form) `(print (* 2 ,form)))
+(defmacro #:space text (twice form) `(print ,form ,form))
+
+(define python
+  (#%python-code
+    (#:space math (twice 21))    ; the macro in space math
+    (#:space text (twice "hi"))  ; the macro in space text
+    (twice "plain")))            ; no space: the plain name, as ever
+}|
+
+@racket[#%python-code] takes the same keyword to put a whole body in a space,
+@racket[(#%python-code #:space math form ...)], and because the keyword comes
+first a macro call can hand a form in another space to another macro: an inner
+@racket[#:space] overrides the one around it for its own form and subforms.
+@racket[(#:space #f name arg ...)] is the plain name inside a spaced body.  The
+key is a datum (a name is usual), it is not one of the macro's arguments, and a
+spaced macro is provided and required under its dotted name, @tt{math.twice}.
+
+A name is looked up in the space around it, so inside a spaced body a plain name
+that no macro in that space matches is an ordinary Python call, as it always
+was; a @racket[#:space] form that names no macro is a compile error.
+
+A macro of your own is not the only way to grow sugar: a Racket macro can expand
+to @racket[#%python-code], or build the LE forms as data and hand them to it:
 
 @codeblock|{
 (define-syntax-rule (python-twice e) (#%python-code (print e) (print e)))
@@ -265,7 +322,7 @@ CHANGELOG.md                 what changed in each version
 @item{Clojure is the inspiration for the shape of the compiler, not for the
 syntax: one small compiler instead of a pipeline of passes, no CPS, and
 generated Python that stays readable.}
-@item{One macro, six passes, and the pipeline they form is at the top of this
+@item{One macro, seven passes, and the pipeline they form is at the top of this
 file.  Nothing is replaced and nothing is wrapped; the only thing the library
 knows about Racket is how to be a macro.}
 @item{There is no separate @tt{core.py} and no runtime library beyond the pieces

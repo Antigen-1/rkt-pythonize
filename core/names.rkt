@@ -28,7 +28,7 @@
     (values (car p) (cdr p))))
 
 ;; with one operand these are prefix, and + is the operand itself
-(define prefix (hash 'not "not" '- "-" '~ "~"))
+(define prefix (hash 'not "not" '- "-" '~ "~" '+ "+"))
 
 ;; every name that is an operator, so the passes can tell syntax from a name
 (define operators (append (hash-keys infix) (hash-keys prefix) '(+) ))

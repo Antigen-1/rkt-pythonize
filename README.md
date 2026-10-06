@@ -33,10 +33,11 @@ whole interface.
 
 ## Pipeline
 
-`#%python-code` runs six passes, and only the last one writes Python:
+`#%python-code` runs seven passes, and only the last one writes Python:
 
 ```racket
 pass                        in    out     what it does                                                                     
+core/expand-macro.rkt       LE    LE      a defmacro's macro is expanded where its name is bound                           
 core/expand-cond.rkt        LE    LE      a cond becomes nested ifs, each clause body a begin                              
 core/check-expression.rkt   LE    LE      refuses a statement where an expression belongs, and a Racket form that is not LE
 core/check-scope.rkt        LE    LE      logs a warning for a name the program never binds                                
@@ -194,9 +195,69 @@ write.
 
 ## Macros and reaching outside
 
-LE has no macros, because a Racket macro is the better place for sugar:
-write the sugar in Racket and let it expand to `#%python-code`, or build
-the LE forms as data and hand them to the macro:
+A macro is written outside the program, in Racket, with `defmacro`, and
+used inside `#%python-code`:
+
+```racket
+(defmacro (twice form) `(begin ,form ,form))
+                                            
+(define python                              
+  (#%python-code                            
+    (twice (print "hi"))))                  
+```
+
+The body runs while the program is compiled, on the argument forms as
+data, and what it returns takes their place; a macro may expand into
+anything LE has, `cond` included, and into another macro.  There is no
+hygiene: the expansion is re-syntaxed where it is used, so a name the
+macro writes can capture one the program already has – ask `gensym` for
+a name of its own when that matters:
+
+```racket
+(defmacro (bind-tmp value body)        
+  (define name (gensym 'tmp))          
+  `(begin (define ,name ,value) ,body))
+```
+
+A macro is a syntax binding: it is visible after the `defmacro` in its
+own module, or in a module that requires the one that wrote it, and
+nowhere else, so a macro has to be defined before the `#%python-code`
+form that uses it.  A macro’s name shadows an LE name of the same name
+inside the program.
+
+Two macros may share a name if they live in different spaces.  The space
+is part of the binding’s name, so `(defmacro #:space math (twice form)
+...)` binds `math.twice`, and `#:space` at the front of a form says
+which space that form and its subforms are in:
+
+```racket
+(defmacro #:space math (twice form) `(print (* 2 ,form)))           
+(defmacro #:space text (twice form) `(print ,form ,form))           
+                                                                    
+(define python                                                      
+  (#%python-code                                                    
+    (#:space math (twice 21))    ; the macro in space math          
+    (#:space text (twice "hi"))  ; the macro in space text          
+    (twice "plain")))            ; no space: the plain name, as ever
+```
+
+`#%python-code` takes the same keyword to put a whole body in a space,
+`(#%python-code #:space math form ...)`, and because the keyword comes
+first a macro call can hand a form in another space to another macro: an
+inner `#:space` overrides the one around it for its own form and
+subforms. `(#:space #f name arg ...)` is the plain name inside a spaced
+body.  The key is a datum (a name is usual), it is not one of the
+macro’s arguments, and a spaced macro is provided and required under its
+dotted name, `math.twice`.
+
+A name is looked up in the space around it, so inside a spaced body a
+plain name that no macro in that space matches is an ordinary Python
+call, as it always was; a `#:space` form that names no macro is a
+compile error.
+
+A macro of your own is not the only way to grow sugar: a Racket macro
+can expand to `#%python-code`, or build the LE forms as data and hand
+them to it:
 
 ```racket
 (define-syntax-rule (python-twice e) (#%python-code (print e) (print e)))      
@@ -245,7 +306,7 @@ CHANGELOG.md                 what changed in each version
   syntax: one small compiler instead of a pipeline of passes, no CPS,
   and generated Python that stays readable.
 
-* One macro, six passes, and the pipeline they form is at the top of
+* One macro, seven passes, and the pipeline they form is at the top of
   this file.  Nothing is replaced and nothing is wrapped; the only thing
   the library knows about Racket is how to be a macro.
 

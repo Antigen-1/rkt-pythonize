@@ -13,6 +13,11 @@
 @(parameterize ([current-namespace example-namespace])
    (eval '(require rkt-pythonize)))
 
+@; the Macros section's example runs in that namespace, so its defmacro has to
+@; be evaluated there: a macro is visible where its name is bound
+@(parameterize ([current-namespace example-namespace])
+   (eval '(defmacro (twice form) `(begin ,form ,form))))
+
 @(define (python-of forms)
    (parameterize ([current-namespace example-namespace])
      (eval `(#%python-code ,@forms))))
@@ -87,6 +92,8 @@ compiled, and there is nothing left of it at run time.}
 @section{Pipeline}
 
 @itemlist[
+@item{@filepath{core/expand-macro.rkt} -- LE to LE: a macro a @racket[defmacro]
+bound is expanded where its name is bound.}
 @item{@filepath{core/expand-cond.rkt} -- LE to LE: a @racket[cond] becomes the
 nested @racket[if]s it means, each clause body a @racket[begin].}
 @item{@filepath{core/check-expression.rkt} -- LE to LE: refuses a statement where
@@ -255,9 +262,78 @@ does not wrap one, so the thunk is yours to write.
 
 @subsection{Macros}
 
-LE has no macros, because a Racket macro is the better place for sugar: write
-the sugar in Racket and let it expand to @racket[#%python-code], or build the LE
-forms as data and hand them to the macro.
+A macro is written outside the program, in Racket, with @racket[defmacro], and
+used inside @racket[#%python-code]:
+
+@defform[(defmacro (name params ...) body ...)]{Binds @racket[name] to a
+transformer for the LE inside @racket[#%python-code]: the body runs while the
+program is compiled, on the argument forms as data, and the form it returns
+takes their place.  @racket[name] is a syntax binding, so it is visible after
+this form in its own module, or in a module that requires the one that wrote
+it -- and a macro has to be defined before the @racket[#%python-code] form that
+uses it.  There is no hygiene: the expansion is re-syntaxed where it is used,
+so @racket[gensym] a name of the macro's own.  @racket[(defmacro name
+transformer)] binds @racket[name] to a transformer expression.}
+
+@codeblock|{
+(defmacro (twice form) `(begin ,form ,form))
+
+(define python
+  (#%python-code
+    (twice (print "hi"))))
+}|
+
+The Python that renders, produced by running @racket[#%python-code] as this
+manual is built:
+
+@verbatim{@(python-of '((twice (print "hi"))))}
+
+@defform[(defmacro #:space key (name params ...) body ...)]{Binds the macro in
+the space @racket[key], under the name @racket[key]@tt{.}@racket[name] --
+@racket[(defmacro #:space a (twice x) ...)] binds @tt{a.twice} -- so two macros
+may share a name.  @racket[key] is a datum, and it is part of the binding's
+name, so a module that provides @tt{a.twice} is how another module gets that
+macro.  @racket[(defmacro #:space key name transformer)] binds it to a
+transformer expression.}
+
+@codeblock|{
+(defmacro #:space math (twice form) `(print (* 2 ,form)))
+(defmacro #:space text (twice form) `(print ,form ,form))
+
+(define python
+  (#%python-code
+    (#:space math (twice 21))    ; the macro in space math
+    (#:space text (twice "hi"))  ; the macro in space text
+    (twice "plain")))            ; no space: the plain name, as ever
+}|
+
+A use is @racket[(#:space key name arg ...)]: the macro call
+@racket[(name arg ...)] is expanded in that space, and its subforms with it,
+whatever space the body around it is in.  An inner @racket[#:space] overrides
+the one around it for its own form and subforms, which is why a macro call can
+hand a form in another space to another macro.  The key is not one of the
+macro's arguments.  @racket[#%python-code] takes the keyword too,
+@racket[(#%python-code #:space key form ...)], to put a whole body in a space,
+and @racket[(#:space #f name arg ...)] is the plain name inside a spaced body.
+A name is looked up in the space around it, so a plain name that no macro in
+that space matches is an ordinary Python call, as it always was; a
+@racket[#:space] form that names no macro is a compile error.
+
+A macro may expand into anything LE has, @racket[cond] included, and into
+another macro.  A name the expansion writes is the program's name too, so a
+macro that needs one of its own asks @racket[gensym] for it:
+
+@codeblock|{
+(defmacro (bind-tmp value body)
+  (define name (gensym 'tmp))
+  `(begin (define ,name ,value) ,body))
+}|
+
+A macro's name shadows an LE name of the same name: inside
+@racket[#%python-code], @racket[(name arg ...)] is the macro wherever
+@racket[name] is bound as one.  A macro of your own is not the only way to grow
+sugar: a Racket macro can expand to @racket[#%python-code], or build the LE
+forms as data and hand them to it.
 
 @codeblock|{
 (define-syntax-rule (python-twice e) (#%python-code (print e) (print e)))
