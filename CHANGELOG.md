@@ -6,6 +6,13 @@ design – a Lisp-to-Python transpiler (LB, then LE, then LM) driven by a
 nanopass pipeline, with a runtime macro system of its own; the last of
 those was 1.3.3.
 
+## 4.0.2
+
+* The names the compiler makes up use the whole UUID: 32 hex digits, 128
+  bits, so two of them cannot meet in one run or across runs.  They took
+  the first 8 digits before this, which left 32 bits for two names in
+  one program to collide in.
+
 ## 4.0.1
 
 * The documents are one text in two files: `"scribblings/readme.scrbl"`

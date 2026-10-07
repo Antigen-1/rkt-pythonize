@@ -127,11 +127,11 @@
     (define object-name (generated-name 'object-ref))
     (check-equal? generated-prefix "_lift_")
     ;; a name a program writes is not one of these: a UUID is not written down
-    (check-true (regexp-match? #px"^_lift_[0-9a-f]{8}$" (symbol->string lambda-name)))
-    (check-true (regexp-match? #px"^_lift_[0-9a-f]{8}_inner$" (symbol->string inner-name)))
-    (check-true (regexp-match? #px"^_lift_[0-9a-f]{8}_object_ref$" (symbol->string object-name)))
+    (check-true (regexp-match? #px"^_lift_[0-9a-f]{32}$" (symbol->string lambda-name)))
+    (check-true (regexp-match? #px"^_lift_[0-9a-f]{32}_inner$" (symbol->string inner-name)))
+    (check-true (regexp-match? #px"^_lift_[0-9a-f]{32}_object_ref$" (symbol->string object-name)))
     (parameterize ([python-name-style 'camel])
-      (check-true (regexp-match? #px"^_lift_[0-9a-f]{8}_objectRef$"
+      (check-true (regexp-match? #px"^_lift_[0-9a-f]{32}_objectRef$"
                                  (symbol->string (generated-name 'object-ref)))))
     ;; two of them are two names, and each is a Python name already, which the
     ;; conversion of the program gives back
@@ -145,7 +145,7 @@
     ;; and one the compiler's own UUID keeps apart when something does
     (define taken (temporary-name 'value '(value f a)))
     (check-not-equal? taken 'value)
-    (check-true (regexp-match? #px"^value_[0-9a-f]{8}$" (symbol->string taken)))
+    (check-true (regexp-match? #px"^value_[0-9a-f]{32}$" (symbol->string taken)))
     ;; it is a Python name, which the conversion gives back
     (check-equal? (python-name taken) (symbol->string taken)))
 
@@ -175,7 +175,7 @@
     ;; the prefix is a parameter, and by default it is one the compiler makes up
     (check-true (string? (prelude-prefix)))
     ;; a UUID's first bytes, so two runs and two programs do not share one
-    (check-true (regexp-match? #px"^_[0-9a-f]{8}_$" (prelude-prefix)))
+    (check-true (regexp-match? #px"^_[0-9a-f]{32}_$" (prelude-prefix)))
     (check-exn exn:fail? (lambda () (prelude-prefix 1)))
     (check-equal? (parameterize ([prelude-prefix "x_"]) (piece-name 'list)) "x_list")
     ;; every piece has a name, and the pieces that answer to an LE name are the

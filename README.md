@@ -1,8 +1,7 @@
 # rkt-pythonize
 
 ```racket
- (require rkt-pythonize) package:                                                          
-                        [rkt-pythonize](https://pkgs.racket-lang.org/package/rkt-pythonize)
+ (require rkt-pythonize) package: [base](https://pkgs.racket-lang.org/package/base)
 ```
 
 ## Quick start
@@ -427,17 +426,18 @@ A keyword argument’s name is converted as a name is – `#:foo-bar` is
 Python function takes is converted the same way, whether or not the
 program defines the procedure it calls.
 
-A name the compiler makes up for itself is `_lift_3f9a1b2c`, or
-`_lift_3f9a1b2c_inner` for a procedure the program called `inner`, and
-the prelude’s names carry a prefix of the same kind: the compiler takes
-both from a UUID, so no name it makes up is one a program wrote, and a
-name the program defines at the top level is its own in the Python.  Two
-top-level names that are one Python name – `x-y` and `x_y` – are a
-compile error, so a name of the program is one name in the module.  What
-is compared is the Python name in both directions, so a program that
-defines `x-y` and writes `x_y` anywhere – a call, a reference, a `set!`
-– is writing the name it defined, and a parameter list that spells one
-Python name twice is refused as well.
+A name the compiler makes up for itself is
+`_lift_1c2e338fe3356307c04900804c6f3441`, or
+`_lift_1c2e338fe3356307c04900804c6f3441_inner` for a procedure the
+program called `inner`, and the prelude’s names carry a prefix of the
+same kind: the compiler takes both from a UUID, so no name it makes up
+is one a program wrote, and a name the program defines at the top level
+is its own in the Python.  Two top-level names that are one Python name
+– `x-y` and `x_y` – are a compile error, so a name of the program is one
+name in the module.  What is compared is the Python name in both
+directions, so a program that defines `x-y` and writes `x_y` anywhere –
+a call, a reference, a `set!` – is writing the name it defined, and a
+parameter list that spells one Python name twice is refused as well.
 
 * A free identifier is a Python global: `(print (len "abc"))` becomes
   `print (len ("abc"))`.
@@ -515,22 +515,23 @@ Python function takes is converted the same way, whether or not the
 program defines the procedure it calls: `(sorted xs #:reverse #t)` is
 `sorted(xs, reverse=True)`.
 
-A name the compiler makes up for itself is `_lift_3f9a1b2c`, or
-`_lift_3f9a1b2c_inner` for a procedure the program called `inner`, and
-it is a UUID the program did not write down, so a name the program
-defines at the top level is its own in the Python.  The prelude’s own
-names carry `prelude-prefix` – an identifier’s worth of a UUID, which
-the compiler asks for once a run – so a name a program writes is never
-one of the prelude’s: a program may define `list` and get its own
-`list`, while the piece the compiler calls is out of its reach under the
-prefix.  Pin the prefix to have the same Python every time; this manual
-pins it to nothing, so the pieces below read as they are written.  Two
-top-level names that are one Python name – `x-y` and `x_y` – are a
-compile error, so a name of the program is one name in the module.  What
-is compared is the Python name in both directions: a program that
-defines `x-y` and writes `x_y` anywhere – a call, a reference, a `set!`
-– is writing the name it defined, and a parameter list that spells one
-Python name twice is refused as well.
+A name the compiler makes up for itself is
+`_lift_1c2e338fe3356307c04900804c6f3441`, or
+`_lift_1c2e338fe3356307c04900804c6f3441_inner` for a procedure the
+program called `inner`, and it is a UUID the program did not write down,
+so a name the program defines at the top level is its own in the Python.
+The prelude’s own names carry `prelude-prefix` – an identifier’s worth
+of a UUID, which the compiler asks for once a run – so a name a program
+writes is never one of the prelude’s: a program may define `list` and
+get its own `list`, while the piece the compiler calls is out of its
+reach under the prefix.  Pin the prefix to have the same Python every
+time; this manual pins it to nothing, so the pieces below read as they
+are written.  Two top-level names that are one Python name – `x-y` and
+`x_y` – are a compile error, so a name of the program is one name in the
+module.  What is compared is the Python name in both directions: a
+program that defines `x-y` and writes `x_y` anywhere – a call, a
+reference, a `set!` – is writing the name it defined, and a parameter
+list that spells one Python name twice is refused as well.
 
 ## Keyword arguments
 

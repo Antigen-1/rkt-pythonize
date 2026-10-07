@@ -71,21 +71,45 @@
   (define (note sym binding)
     (unless (assoc sym found)
       (set! found (cons (cons sym (var-id binding)) found))))
+  ;; The forms are visited with a stack of our own rather than Racket's: a chain
+  ;; of a thousand nested lambdas is a thousand forms, and finding what they
+  ;; capture should not need a thousand frames to do it.  Children go on the
+  ;; stack in reverse, so they come off in the order they are written and the
+  ;; captures are noted in the order a recursive walk would note them.
+  (define (work-of forms env) (for/list ([f (in-list forms)]) (cons f env)))
+  (define (body-work forms env)
+    ;; a body binds what it defines: its own names are not a capture
+    (define env* (for/fold ([env env]) ([f (in-list forms)] #:when (define? f))
+                   (cons (cons (target-name (cadr (syntax->list f))) inner-binding) env)))
+    (work-of forms env*))
   (define (walk stx env)
-    (cond [(identifier? stx)
-           (define binding (lookup env (syntax-e stx)))
-           (when (var? binding) (note (syntax-e stx) binding))]
-          [(not (syntax->list stx)) (void)]
-          [else
-           (define parts (syntax->list stx))
-           (case (head stx)
-             [(quote) (void)]
-             [(lambda) (walk-body (cddr parts) (bind-lambda-params (cadr parts) env))]
-             [(define)
-              (define target (cadr parts))
-              (cond [(identifier? target) (walk (caddr parts) env)]
-                    [else (walk-body (cddr parts) (bind-define-params target env))])]
-             [else (for ([p (in-list parts)]) (walk p env))])]))
+    (let loop ([work (list (cons stx env))])
+      (when (pair? work)
+        (define item (car work))
+        (define rest (cdr work))
+        (define form (car item))
+        (define env* (cdr item))
+        (cond [(identifier? form)
+               (define binding (lookup env* (syntax-e form)))
+               (when (var? binding) (note (syntax-e form) binding))
+               (loop rest)]
+              [(not (syntax->list form)) (loop rest)]
+              [else
+               (define parts (syntax->list form))
+               (case (head form)
+                 [(quote) (loop rest)]
+                 [(lambda)
+                  (loop (append (reverse (body-work (cddr parts)
+                                                   (bind-lambda-params (cadr parts) env*)))
+                                rest))]
+                 [(define)
+                  (define target (cadr parts))
+                  (cond [(identifier? target) (loop (cons (cons (caddr parts) env*) rest))]
+                        [else
+                         (loop (append (reverse (body-work (cddr parts)
+                                                           (bind-define-params target env*)))
+                                       rest))])]
+                 [else (loop (append (reverse (work-of parts env*)) rest))])]))))
   (define (bind-names params keywords rest env)
     (define bound (append params (map keyword-param-name keywords)))
     (define env* (for/fold ([env env]) ([p (in-list bound)])
@@ -97,11 +121,6 @@
   (define (bind-define-params target env)
     (define-values (params keywords rest) (param-parts target))
     (bind-names params keywords rest env))
-  (define (walk-body forms env)
-    ;; a body binds what it defines: its own names are not a capture
-    (define env* (for/fold ([env env]) ([f (in-list forms)] #:when (define? f))
-                   (cons (cons (target-name (cadr (syntax->list f))) inner-binding) env)))
-    (for ([f (in-list forms)]) (walk f env*)))
   (walk stx env)
   (reverse found))
 

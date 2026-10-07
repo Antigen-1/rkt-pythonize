@@ -456,7 +456,7 @@
         (print (add2 3))
         (print _lift1)))
     ;; the program keeps the name it wrote, and the lifted def has one of its own
-    (check-true (regexp-match? #px"def _lift_[0-9a-f]{8}\\(n, x\\):" code))
+    (check-true (regexp-match? #px"def _lift_[0-9a-f]{32}\\(n, x\\):" code))
     (check-true (string-contains? code "_lift1 = \"the program's\""))
     (check-equal? (python-output code) "5\nthe program's\n"))
 
@@ -729,9 +729,9 @@
     ;; a clause body of several forms is a begin where a value belongs, so it is
     ;; lifted into a procedure of its own: statements in a def, and a call to it
     (check-false (string-contains? code "begin("))
-    (check-equal? (length (regexp-match* #px"def _lift_[0-9a-f]{8}\\(\\):" code)) 2)
+    (check-equal? (length (regexp-match* #px"def _lift_[0-9a-f]{32}\\(\\):" code)) 2)
     (check-true (regexp-match?
-                 #px"print\\(\\(_lift_[0-9a-f]{8}\\(\\) if \\(n > 0\\) is not False else \\(\"negative\" if \\(n < 0\\) is not False else _lift_[0-9a-f]{8}\\(\\)\\)\\)\\)"
+                 #px"print\\(\\(_lift_[0-9a-f]{32}\\(\\) if \\(n > 0\\) is not False else \\(\"negative\" if \\(n < 0\\) is not False else _lift_[0-9a-f]{32}\\(\\)\\)\\)\\)"
                  code))
     (check-equal? (python-output code) "positive\npositive\n"))
 
@@ -843,8 +843,8 @@
     ;; the macro's begin stands as a statement where the program wrote one, and
     ;; where the value is wanted it is lifted
     (check-true (string-contains? code "print(\"hi\")\nprint(\"hi\")"))
-    (check-true (regexp-match? #px"def _lift_[0-9a-f]{8}\\(\\):\n    21\n    return 21" code))
-    (check-true (regexp-match? #px"print\\(_lift_[0-9a-f]{8}\\(\\)\\)" code))
+    (check-true (regexp-match? #px"def _lift_[0-9a-f]{32}\\(\\):\n    21\n    return 21" code))
+    (check-true (regexp-match? #px"print\\(_lift_[0-9a-f]{32}\\(\\)\\)" code))
     (check-false (string-contains? code "begin("))
     (check-equal? (python-output code) "hi\nhi\n21\n"))
 
@@ -1075,9 +1075,9 @@
                  code "def f(x):\n    print(\"a\")\n    print(\"b\")\n    return (x + 1)"))
     ;; a begin in a value's place is a def of its own, called where it stands
     (check-true (regexp-match?
-                 #px"def _lift_[0-9a-f]{8}\\(\\):\n    print\\(\"t\"\\)\n    return True" code))
+                 #px"def _lift_[0-9a-f]{32}\\(\\):\n    print\\(\"t\"\\)\n    return True" code))
     (check-true (regexp-match?
-                 #px"def _lift_[0-9a-f]{8}\\(\\):\n    print\\(\"c\"\\)\n    return 1" code))
+                 #px"def _lift_[0-9a-f]{32}\\(\\):\n    print\\(\"c\"\\)\n    return 1" code))
     ;; a begin as a statement keeps its definitions where they mean something
     (check-true (string-contains? code "def g():\n    z = 5\n    return (z * z)"))
     (check-false (string-contains? code "begin("))

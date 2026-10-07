@@ -188,10 +188,10 @@
 ;; reach.  Pin the prefix to have the same Python every time, or to nothing to
 ;; read the prelude as it is written here.
 
-;; an identifier's worth of a UUID: the compiler's own names are made of these,
-;; and a name a program writes is not one
+;; the whole UUID, without its hyphens: the compiler's own names are made of
+;; these, and a name a program writes is not one
 (define (uuid-part)
-  (substring (regexp-replace* #rx"-" (uuid-string) "") 0 8))
+  (substring (regexp-replace* #rx"-" (uuid-string) "") 0 32))
 
 ;; a prefix the run can call its own
 (define (random-prefix)

@@ -468,8 +468,8 @@ A keyword argument's name is converted as a name is -- @racket[#:foo-bar] is
 Python function takes is converted the same way, whether or not the program
 defines the procedure it calls.
 
-A name the compiler makes up for itself is @tt{_lift_3f9a1b2c}, or
-@tt{_lift_3f9a1b2c_inner} for a procedure the program called @tt{inner}, and the
+A name the compiler makes up for itself is @tt{_lift_1c2e338fe3356307c04900804c6f3441}, or
+@tt{_lift_1c2e338fe3356307c04900804c6f3441_inner} for a procedure the program called @tt{inner}, and the
 prelude's names carry a prefix of the same kind: the compiler takes both from a
 UUID, so no name it makes up is one a program wrote, and a name the program
 defines at the top level is its own in the Python.  Two top-level names that are one Python name -- @tt{x-y} and
@@ -557,8 +557,8 @@ keyword a Python function takes is converted the same way, whether or not the
 program defines the procedure it calls: @racket[(sorted xs #:reverse #t)] is
 @tt{sorted(xs, reverse=True)}.
 
-A name the compiler makes up for itself is @tt{_lift_3f9a1b2c}, or
-@tt{_lift_3f9a1b2c_inner} for a procedure the program called @racket[inner], and
+A name the compiler makes up for itself is @tt{_lift_1c2e338fe3356307c04900804c6f3441}, or
+@tt{_lift_1c2e338fe3356307c04900804c6f3441_inner} for a procedure the program called @racket[inner], and
 it is a UUID the program did not write down, so a name the program defines at
 the top level is its own in the Python.  The prelude's own names carry
 @racket[prelude-prefix] -- an identifier's worth of a UUID, which the compiler
