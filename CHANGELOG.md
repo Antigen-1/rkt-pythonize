@@ -6,6 +6,22 @@ design – a Lisp-to-Python transpiler (LB, then LE, then LM) driven by a
 nanopass pipeline, with a runtime macro system of its own; the last of
 those was 1.3.3.
 
+## 4.0.1
+
+* The documents are one text in two files: `"scribblings/readme.scrbl"`
+  is the README and the manual’s chapters, and
+  `"scribblings/changelog.scrbl"` is the changelog and the manual’s last
+  chapter.  `"scribblings/manual.rkt"` assembles the manual from those
+  two documents – the README’s chapters are read out of its document and
+  reparented as they are, so the manual’s chapters and the changelog sit
+  at one level, the README is the whole language rather than only its
+  architecture, and no chapter is titled README.
+
+* `"build-docs.rkt"` writes only the generated Markdown \(`"README.md"`
+  and `"CHANGELOG.md"`), and `"installer.rkt"` runs it when the package
+  is installed or updated; `"info.rkt"` names the installer and points
+  its `scribblings` at the manual module.
+
 ## 4.0.0
 
 The line from 3.0.0 to here, in one place.  4.0.0 is the language 3.12.6

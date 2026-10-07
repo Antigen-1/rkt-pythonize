@@ -40,4 +40,4 @@ jobs:
       - name: Testing rkt-pythonize
         run: raco test -x -p rkt-pythonize
       - name: Checking that the generated docs match their sources
-        run: ./build-docs.sh && git diff --exit-code README.md CHANGELOG.md
+        run: racket build-docs.rkt && git diff --exit-code README.md CHANGELOG.md scribblings/rkt-pythonize.scrbl

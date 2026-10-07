@@ -14,6 +14,22 @@ ones are listed too.  Everything before 2.0.0 was a different design -- a
 Lisp-to-Python transpiler (LB, then LE, then LM) driven by a nanopass pipeline,
 with a runtime macro system of its own; the last of those was 1.3.3.
 
+@section[#:style 'unnumbered]{4.0.1}
+
+@itemlist[
+@item{The documents are one text in two files: @filepath{scribblings/readme.scrbl}
+is the README and the manual's chapters, and @filepath{scribblings/changelog.scrbl}
+is the changelog and the manual's last chapter.  @filepath{scribblings/manual.rkt}
+assembles the manual from those two documents -- the README's chapters are read
+out of its document and reparented as they are, so the manual's chapters and the
+changelog sit at one level, the README is the whole language rather than only its
+architecture, and no chapter is titled README.}
+@item{@filepath{build-docs.rkt} writes only the generated Markdown
+(@filepath{README.md} and @filepath{CHANGELOG.md}), and
+@filepath{installer.rkt} runs it when the package is installed or updated;
+@filepath{info.rkt} names the installer and points its @tt{scribblings} at the
+manual module.}]
+
 @section[#:style 'unnumbered]{4.0.0}
 
 The line from 3.0.0 to here, in one place.  4.0.0 is the language 3.12.6
