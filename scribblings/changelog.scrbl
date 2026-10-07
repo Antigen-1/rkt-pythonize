@@ -14,6 +14,63 @@ ones are listed too.  Everything before 2.0.0 was a different design -- a
 Lisp-to-Python transpiler (LB, then LE, then LM) driven by a nanopass pipeline,
 with a runtime macro system of its own; the last of those was 1.3.3.
 
+@section[#:style 'unnumbered]{4.0.0}
+
+The line from 3.0.0 to here, in one place.  4.0.0 is the language 3.12.6
+describes: nothing in the compiler changed for it, and the version says what the
+changes since 3.0.0 add up to.
+
+@itemlist[
+@item{rkt-pythonize is a library with one export, @racket[#%python-code], whose
+value is the Python its forms compile to.  The compilation happens at expansion
+time: there is no @tt{#lang}, no reader and no command line, and the data-based
+pipeline and runtime macro machinery of the 2.x line are gone.}
+@item{The pipeline is one file a stage: a macro expansion
+(@filepath{core/expand-macro.rkt}), the high-level syntax
+(@filepath{syntax/cond.rkt}, @filepath{syntax/thread.rkt}), two checks
+(@filepath{core/check-expression.rkt}, @filepath{core/check-scope.rkt}), two
+lowerings (@filepath{core/explicit.rkt}, @filepath{core/lift.rkt}) and the
+renderer (@filepath{core/render.rkt}).  LE becomes LL becomes LB, the whole
+program is walked before a line of Python is written, and a name the program
+never binds is a logged warning rather than a guess.}
+@item{@filepath{core/names.rkt} is the one module that says what a name is in
+Python -- @racket[python-name], @racket[python-keyword-name],
+@racket[python-name-style] (@racket['snake], or @racket['camel] where a trailing
+@racket[?] is the predicate @tt{is}) and @racket[piece-name] -- and nothing else
+spells a Python name out.  The conversion is idempotent, and the checks compare
+the Python name in both directions, so @tt{x-y} and @tt{x_y} are one name.}
+@item{Keyword arguments, Racket's way: a parameter list takes @racket[#:k k] and
+a call writes @racket[(f 1 #:k 2)], a keyword parameter is keyword-only in the
+Python, a call writes its keywords where it likes, and the compiler's own call
+reaches the runtime's @tt{apply} whatever the program names things.  A keyword
+is syntax, never a datum.}
+@item{Macros: @racket[defmacro] binds a transformer for the LE inside
+@racket[#%python-code], @racket[#:space] lets two macros share a name, there is
+no hygiene -- a macro asks @racket[gensym] for a name of its own -- and a macro
+takes keyword arguments, because a transformer is a Racket procedure.}
+@item{The runtime is a prelude of pieces, and it carries only the pieces the
+program asks for: @racket[raise] and @racket[with-handler], @racket[trampoline]
+(tail calls are explicit: the compiler does not recognise one, so the thunk is
+yours), @racket[import], @racket[list], @racket[apply],
+@racket[keyword-apply], the @tt{object-} family, and the operators, which are
+syntax and not procedures.  A begin where a value belongs is a procedure of its
+own rather than a piece, and the prelude's names carry
+@racket[prelude-prefix], so no name a program writes is one of them.}
+@item{The high-level syntax lives in @filepath{syntax/}: @racket[cond], and the
+threading operators @racket[(-> x step ...)] and @racket[(->> x step ...)],
+which thread the value into the first argument of a step or into the last
+positional one, stop at the first step whose value is an @racket[Exception], and
+are run by @racket[trampoline], so a chain is flat however many steps it has.}
+@item{Names the compiler makes up are made of a UUID -- @tt{_lift_3f9a1b2c} for
+a lifted procedure, @tt{_lift_3f9a1b2c_inner} for one the program called
+@tt{inner} -- so a name a program defines at the top level is its own, and its
+Python name is knowable from the source alone, which is what a program that
+exports its names reads.}
+@item{The documents are each other's tests: @tt{README.md} and this changelog
+are generated from @filepath{scribblings/}, the manual's examples are compiled
+and run with @tt{python3} while the manual is built, and @filepath{tests/}
+renders programs, looks at the Python, and runs it.}]
+
 @section[#:style 'unnumbered]{3.12.6}
 
 @itemlist[

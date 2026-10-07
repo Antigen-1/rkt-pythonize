@@ -6,6 +6,71 @@ design – a Lisp-to-Python transpiler (LB, then LE, then LM) driven by a
 nanopass pipeline, with a runtime macro system of its own; the last of
 those was 1.3.3.
 
+## 4.0.0
+
+The line from 3.0.0 to here, in one place.  4.0.0 is the language 3.12.6
+describes: nothing in the compiler changed for it, and the version says
+what the changes since 3.0.0 add up to.
+
+* rkt-pythonize is a library with one export, `#%python-code`, whose
+  value is the Python its forms compile to.  The compilation happens at
+  expansion time: there is no `#lang`, no reader and no command line,
+  and the data-based pipeline and runtime macro machinery of the 2.x
+  line are gone.
+
+* The pipeline is one file a stage: a macro expansion
+  \(`"core/expand-macro.rkt"`), the high-level syntax
+  \(`"syntax/cond.rkt"`, `"syntax/thread.rkt"`), two checks
+  \(`"core/check-expression.rkt"`, `"core/check-scope.rkt"`), two
+  lowerings (`"core/explicit.rkt"`, `"core/lift.rkt"`) and the renderer
+  (`"core/render.rkt"`).  LE becomes LL becomes LB, the whole program is
+  walked before a line of Python is written, and a name the program
+  never binds is a logged warning rather than a guess.
+
+* `"core/names.rkt"` is the one module that says what a name is in
+  Python – `python-name`, `python-keyword-name`, `python-name-style`
+  (`'snake`, or `'camel` where a trailing `?` is the predicate `is`) and
+  `piece-name` – and nothing else spells a Python name out.  The
+  conversion is idempotent, and the checks compare the Python name in
+  both directions, so `x-y` and `x_y` are one name.
+
+* Keyword arguments, Racket’s way: a parameter list takes `#:k k` and a
+  call writes `(f 1 #:k 2)`, a keyword parameter is keyword-only in the
+  Python, a call writes its keywords where it likes, and the compiler’s
+  own call reaches the runtime’s `apply` whatever the program names
+  things.  A keyword is syntax, never a datum.
+
+* Macros: `defmacro` binds a transformer for the LE inside
+  `#%python-code`, `#:space` lets two macros share a name, there is no
+  hygiene – a macro asks `gensym` for a name of its own – and a macro
+  takes keyword arguments, because a transformer is a Racket procedure.
+
+* The runtime is a prelude of pieces, and it carries only the pieces the
+  program asks for: `raise` and `with-handler`, `trampoline` \(tail
+  calls are explicit: the compiler does not recognise one, so the thunk
+  is yours), `import`, `list`, `apply`, `keyword-apply`, the `object-`
+  family, and the operators, which are syntax and not procedures.  A
+  begin where a value belongs is a procedure of its own rather than a
+  piece, and the prelude’s names carry `prelude-prefix`, so no name a
+  program writes is one of them.
+
+* The high-level syntax lives in `"syntax/"`: `cond`, and the threading
+  operators `(-> x step ...)` and `(->> x step ...)`, which thread the
+  value into the first argument of a step or into the last positional
+  one, stop at the first step whose value is an `Exception`, and are run
+  by `trampoline`, so a chain is flat however many steps it has.
+
+* Names the compiler makes up are made of a UUID – `_lift_3f9a1b2c` for
+  a lifted procedure, `_lift_3f9a1b2c_inner` for one the program called
+  `inner` – so a name a program defines at the top level is its own, and
+  its Python name is knowable from the source alone, which is what a
+  program that exports its names reads.
+
+* The documents are each other’s tests: `README.md` and this changelog
+  are generated from `"scribblings/"`, the manual’s examples are
+  compiled and run with `python3` while the manual is built, and
+  `"tests/"` renders programs, looks at the Python, and runs it.
+
 ## 3.12.6
 
 * What interrupts `->` and `->>` is an exception, not `None`: a step
