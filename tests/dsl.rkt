@@ -1113,16 +1113,20 @@
     (check-false (string-contains? code "begin("))
     (check-equal? (python-output code) "6\n14\n4\n[2, 1]\n"))
 
-  (test-case "a step that is None stops the chain, and nothing else does"
+  (test-case "an exception stops the chain, and nothing else does"
     (define code
       (#%python-code
-        (define (half x) (if (= x 0) None (quotient x 2)))
-        (define (inc x) (+ x 1))
+        (define (half x) (if (= x 0) (Exception "zero") (quotient x 2)))
+        (define (inc x) (print "inc") (+ x 1))
         (print (-> 8 half inc))
+        ;; an Exception, or a subclass of it, is the chain's value, and the steps
+        ;; after it do not run
         (print (-> 0 half inc))
+        ;; None is a value like any other now
+        (print (-> None (list)))
         ;; the value of the last step is handed back even when it is callable
         (print ((-> 5 (object-get-attr "bit_length"))))))
-    (check-equal? (python-output code) "5\nNone\n3\n"))
+    (check-equal? (python-output code) "inc\n5\nzero\n[None]\n3\n"))
 
   (test-case "a threading form needs a value and steps that are calls or names"
     (check-true (refuses? '((->))))

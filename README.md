@@ -176,11 +176,13 @@ errors too.
 `(-> x step ...)` threads `x` into the first argument of each step, and
 `(->> x step ...)` into the last positional one, so `(-> x (f a) (g b))`
 is `(g (f x a) b)` and `(->> x (f a) (g b))` is `(g b (f a x))`.  A step
-is a call or a bare name, and `None` interrupts: a step whose value is
-None ends the chain there, the steps after it do not run, and the
-chain’s value is None.  Nothing else interrupts – a value that happens
-to be callable is handed back like any other – and the chain is run by
-`trampoline`, so it is flat however many steps it has.
+is a call or a bare name, and an exception interrupts: a step whose
+value is an instance of `Exception` or of a subclass of it ends the
+chain there, the steps after it do not run, and the chain’s value is
+that instance.  Nothing else interrupts – `None` is a value like any
+other, and a value that happens to be callable is handed back too – and
+the chain is run by `trampoline`, so it is flat however many steps it
+has.
 
 ```racket
 source                          Python           

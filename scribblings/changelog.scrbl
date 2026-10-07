@@ -14,6 +14,17 @@ ones are listed too.  Everything before 2.0.0 was a different design -- a
 Lisp-to-Python transpiler (LB, then LE, then LM) driven by a nanopass pipeline,
 with a runtime macro system of its own; the last of those was 1.3.3.
 
+@section[#:style 'unnumbered]{3.12.6}
+
+@itemlist[
+@item{What interrupts @racket[->] and @racket[->>] is an exception, not
+@racket[None]: a step whose value is an instance of @racket[Exception] or of a
+subclass of it ends the chain there, the steps after it do not run, and the
+chain's value is that instance.  @racket[None] is a value like any other, so a
+step may hand it on, and a chain that runs to its end is told from one that was
+interrupted by what comes back: the instance itself, or the value of the last
+step.}]
+
 @section[#:style 'unnumbered]{3.11.6}
 
 @itemlist[

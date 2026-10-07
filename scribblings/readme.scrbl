@@ -197,11 +197,12 @@ statements.  The pieces are exactly:}]
 step, and @racket[(->> x step ...)] into the last positional one, so
 @racket[(-> x (f a) (g b))] is @tt{(g (f x a) b)} and
 @racket[(->> x (f a) (g b))] is @tt{(g b (f a x))}.  A step is a call or a bare
-name, and @racket[None] interrupts: a step whose value is None ends the chain
-there, the steps after it do not run, and the chain's value is None.  Nothing
-else interrupts -- a value that happens to be callable is handed back like any
-other -- and the chain is run by @racket[trampoline], so it is flat however many
-steps it has.
+name, and an exception interrupts: a step whose value is an instance of
+@racket[Exception] or of a subclass of it ends the chain there, the steps after
+it do not run, and the chain's value is that instance.  Nothing else interrupts
+-- @racket[None] is a value like any other, and a value that happens to be
+callable is handed back too -- and the chain is run by @racket[trampoline], so
+it is flat however many steps it has.
 
 @plain-code|{
 source                          Python

@@ -9,11 +9,13 @@
 ;; A step is a call or a bare name, and the value of the chain is what the last
 ;; step makes of the value before it.
 ;;
-;; None interrupts.  A step whose value is None ends the chain there and the
-;; chain's value is None: the steps after it do not run.  Nothing else
-;; interrupts, so what the last step makes is handed back in a one-element list
-;; and the driver takes it out -- which is what keeps a value that happens to be
-;; callable from being mistaken for the next step.
+;; An exception interrupts.  A step whose value is an instance of Exception --
+;; or of a subclass of it -- ends the chain there and the chain's value is that
+;; instance: the steps after it do not run.  Nothing else interrupts, so what the
+;; last step makes is handed back in a one-element list and the driver takes it
+;; out -- which is what keeps a value that happens to be callable from being
+;; mistaken for the next step, and what keeps an exception value from being
+;; confused with a chain that ran to its end.
 ;;
 ;; The trampoline is what runs the chain.  A step that is not the last answers
 ;; the call that makes the next one, a procedure of no arguments; None is not
@@ -77,15 +79,15 @@
          (define boxed (temporary-name 'boxed taken))
          (mk stx
              (list (mk stx (list 'lambda (mk stx (list boxed))
-                                 (mk stx (list 'if (mk stx (list 'eq? boxed 'None))
-                                               'None
+                                 (mk stx (list 'if (mk stx (list 'isinstance boxed 'Exception))
+                                               boxed
                                                (mk stx (list 'object-ref boxed 0))))))
                    (mk stx (list 'trampoline
                                  (mk stx (list (step-lambda stx steps value taken first?)
                                                value))))))]))
 
 ;; a step: a procedure of the value, which names what the step makes of it.
-;; None there ends the chain; the last step leaves the value in a list; any
+;; An exception there ends the chain; the last step leaves the value in a list; any
 ;; other step answers the call that makes the next one, which is a procedure of
 ;; no arguments -- the trampoline calls it, and it returns before the step it
 ;; calls does.
@@ -102,7 +104,9 @@
                       (mk stx (list (step-lambda stx rest result taken first?) result))))))
   (mk stx (list 'lambda (mk stx (list param))
                 (mk stx (list 'define result made))
-                (mk stx (list 'if (mk stx (list 'eq? result 'None)) 'None answer)))))
+                (mk stx (list 'if (mk stx (list 'isinstance result 'Exception))
+                              result
+                              answer)))))
 
 ;; the step with the value threaded in: -> puts it first, ->> puts it after the
 ;; positional arguments and before the keyword ones, which is the last positional
