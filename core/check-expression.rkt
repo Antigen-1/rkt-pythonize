@@ -78,6 +78,7 @@
            [(define)
             (define target (cadr parts))
             (when (null? (cddr parts)) (not-le stx "a definition needs a body"))
+            (check-not-constant stx target)
             (cond [(identifier? target)
                    (when (not (null? (cdr (cddr parts))))
                      (not-le stx "a value definition takes one expression"))
@@ -91,6 +92,7 @@
             ;; a keyword is syntax, not a name to assign to
             (unless (identifier? (cadr parts))
               (not-le stx "an assignment takes a name to assign"))
+            (check-not-constant stx (cadr parts))
             (check-expression (caddr parts))]
            [(begin) (for ([f (in-list (cdr parts))]) (check-statement f))]
            [(if)
@@ -99,6 +101,16 @@
             (check-statement (caddr parts))
             (check-statement (cadddr parts))]
            [else (check-expression stx)])]))
+
+;; Python's constants are values a program reads: None is what the threading
+;; operators interrupt on, and True and False are what #t and #f are
+(define (check-constant stx name)
+  (when (python-constant? name)
+    (not-le stx (format "~a is one of Python's constants: it is a value, not a name to bind"
+                        name))))
+
+(define (check-not-constant stx target)
+  (when (identifier? target) (check-constant stx (syntax-e target))))
 
 ;; a body: statements, and the value of its last form is the value of the body
 (define (check-body forms)
@@ -130,7 +142,19 @@
            [(if)
             (when (not (= 4 (length parts))) (not-le stx "an if takes three parts"))
             (for ([p (in-list (cdr parts))]) (check-expression p))]
-           [(begin) (for ([p (in-list (cdr parts))]) (check-expression p))]
+           [(begin)
+            ;; a begin sequences expressions.  That a definition cannot stand in
+            ;; one is begin's semantics, not a limit of the compiler: a begin is
+            ;; not a place where a name is defined, and if a definition stood in
+            ;; one it would mean something other than it says where it stands.
+            (when (null? (cdr parts)) (not-le stx "an empty begin has no value"))
+            (for ([p (in-list (cdr parts))])
+              (when (statement-form? p)
+                (not-le p
+                        (string-append
+                         "a begin sequences expressions: a definition belongs in a body, "
+                         "where a name is defined")))
+              (check-expression p))]
            [(lambda)
             (when (null? (cddr parts)) (not-le stx "a lambda needs a body"))
             (define sig (syntax->datum (cadr parts)))
@@ -180,4 +204,9 @@
 ;; a parameter list: core/params.rkt says what one is, and a form to point at
 ;; makes its errors read as that form
 (define (check-signature stx sig)
-  (signature-parts sig (lambda (message) (not-le stx message))))
+  (define-values (params keywords rest)
+    (signature-parts sig (lambda (message) (not-le stx message))))
+  (for ([p (in-list params)]) (check-constant stx p))
+  (for ([k (in-list keywords)]) (check-constant stx (keyword-param-name k)))
+  (when rest (check-constant stx rest))
+  (values params keywords rest))

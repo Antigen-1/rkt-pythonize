@@ -33,7 +33,8 @@
 (require (for-syntax racket/base)
          (for-syntax "core/names.rkt")
          (for-syntax "core/expand-macro.rkt")
-         (for-syntax "core/expand-cond.rkt")
+         (for-syntax "syntax/cond.rkt")
+         (for-syntax "syntax/thread.rkt")
          (for-syntax "core/check-expression.rkt")
          (for-syntax "core/check-scope.rkt")
          (for-syntax "core/explicit.rkt")
@@ -83,16 +84,21 @@
       (raise-syntax-error '#%python-code "a #:space body names a space" stx))
     (define space (and spaced? (syntax->datum (cadr parts))))
     (define forms (if spaced? (cddr parts) parts))
-    ;; LE --expand-macro--> --expand-cond--> LE --check-expression-->
+    ;; LE --expand-macro--> --syntax/--> LE --check-expression-->
     ;; --check-scope--> LE --make-explicit--> LL --lift--> LB --render--> Python
+    ;;
+    ;; The syntax/ expansions are the high-level syntax: cond, and the threading
+    ;; operators.  They run after the macros (whose expansion may use them) and
+    ;; before the checks, which then only ever see LE's own forms.
     (datum->syntax stx
                    (render-program
                     (lift-program
                      (explicit-program
                       (check-scope-program
                        (check-expression-program
-                        (expand-cond-program
-                         (expand-macro-program forms space))))))))))
+                        (expand-thread-program
+                         (expand-cond-program
+                          (expand-macro-program forms space)))))))))))
 
 (provide #%python-code
          defmacro

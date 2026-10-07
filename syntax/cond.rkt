@@ -9,7 +9,8 @@
 ;; form is already the body.  else is a keyword, and only legal as the last
 ;; clause's test; a cond that runs out of clauses raises, as Racket's does.
 ;;
-;; This pass runs first, so the checks after it only ever see if and begin.
+;; The syntax expansions of syntax/ run first, and cond before the threading
+;; operators, so the checks after them only ever see if and begin.
 
 (require racket/list)
 
@@ -25,7 +26,7 @@
       "?"))
 
 (define (not-le stx message)
-  (error 'expand-cond "~a: ~a: ~a" (form-location stx) message (syntax->datum stx)))
+  (error 'cond "~a: ~a: ~a" (form-location stx) message (syntax->datum stx)))
 
 (define (expand-cond-program forms)
   (for/list ([f (in-list forms)]) (expand f)))

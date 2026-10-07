@@ -6,6 +6,39 @@ design – a Lisp-to-Python transpiler (LB, then LE, then LM) driven by a
 nanopass pipeline, with a runtime macro system of its own; the last of
 those was 1.3.3.
 
+## 3.11.6
+
+* A `begin` where a value belongs is lifted into a procedure of its own
+  and called where it stands, so the Python is a `def` of statements
+  rather than one call whose arguments are the program: `(if (begin
+  (print "t") #t) 1 2)` is a `def` that prints and returns, and a call
+  to it.  A begin that stands as a statement, and the begin a body’s
+  forms make, are statements as before.  The runtime has no `begin`
+  piece any more.
+
+* That a definition cannot stand in a begin where a value belongs is
+  `begin`’s semantics, not a limit of the compiler – a begin sequences
+  expressions, and a definition belongs in a body, where a name is
+  defined – and the refusal now says so.
+
+* `"syntax/"` is the high-level syntax, which runs after the macros and
+  before the checks: `"syntax/cond.rkt"`, the `cond` expansion that was
+  `"core/expand-cond.rkt"`, and `"syntax/thread.rkt"`, which is new.
+
+* `(-> x step ...)` threads into the first argument of each step and
+  `(->> x step ...)` into the last positional one.  `None` interrupts: a
+  step whose value is None ends the chain there and the chain’s value is
+  None, and the steps after it do not run.  The chain is run by
+  `trampoline` – each step answers the call that makes the next one – so
+  it is flat however many steps it has, and the value of the last step
+  comes back in a one-element list the driver unwraps, so a value that
+  is callable is not mistaken for the next step.
+
+* `None`, `True` and `False` are the Python constants a program reads,
+  and not names a Python keyword takes a trailing `_` from: `None` is
+  what the threading operators interrupt on.  Binding one is a compile
+  error.
+
 ## 3.10.6
 
 * The camel predicate rule is written down, and the conversion tables

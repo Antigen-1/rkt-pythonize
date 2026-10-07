@@ -38,7 +38,8 @@ whole interface.
 ```racket
 pass                        in    out     what it does                                                                     
 core/expand-macro.rkt       LE    LE      a defmacro's macro is expanded where its name is bound                           
-core/expand-cond.rkt        LE    LE      a cond becomes nested ifs, each clause body a begin                              
+syntax/cond.rkt             LE    LE      a cond becomes nested ifs, each clause body a begin                              
+syntax/thread.rkt           LE    LE      -> and ->> become the calls they mean, run by a trampoline                       
 core/check-expression.rkt   LE    LE      refuses a statement where an expression belongs, and a Racket form that is not LE
 core/check-scope.rkt        LE    LE      logs a warning for a name the program never binds                                
 core/explicit.rkt           LE    LL      a form that takes a thunk gets an explicit lambda                                
@@ -168,14 +169,24 @@ errors too.
   `PLTSTDERR=warning` is how you see them.
 
 * A procedure the program names comes with the piece it needs, and
-  nothing else does.  The pieces are exactly:
+  nothing else does.  There is no `begin` piece: a begin where a value
+  belongs is lifted into a procedure of its own, and one that stands as
+  a statement is statements.  The pieces are exactly:
+
+`(-> x step ...)` threads `x` into the first argument of each step, and
+`(->> x step ...)` into the last positional one, so `(-> x (f a) (g b))`
+is `(g (f x a) b)` and `(->> x (f a) (g b))` is `(g b (f a x))`.  A step
+is a call or a bare name, and `None` interrupts: a step whose value is
+None ends the chain there, the steps after it do not run, and the
+chain’s value is None.  Nothing else interrupts – a value that happens
+to be callable is handed back like any other – and the chain is run by
+`trampoline`, so it is flat however many steps it has.
 
 ```racket
 source                          Python           
 (raise e)                       raise_, Raised   
 (with-handler h e ...)          with_handler     
 (trampoline s* ... e)           trampoline       
-begin in an expression          begin            
 (import x)                      import_module    
 (list 1 2)                      list             
 (apply f xs)                    apply            

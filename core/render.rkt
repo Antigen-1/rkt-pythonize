@@ -161,11 +161,6 @@
 (define (lisp-true stx) (format "~a is not False" (expr stx)))
 
 
-(define (begin-expr bodies)
-  (need 'begin)
-  (format "~a(~a)" (piece-name 'begin) (string-join (map expr bodies) ", ")))
-
-
 (define (application stx)
   (define parts (syntax->list stx))
   (define f (car parts))
@@ -202,7 +197,9 @@
         (format "(~a if ~a else ~a)"
                 (expr (caddr parts)) (lisp-true (cadr parts))
                 (expr (cadddr parts)))]
-       [(begin) (begin-expr (cdr parts))]
+       ;; lift has made an expression-position begin a procedure of its own and
+       ;; a call to it, so a begin here is a compiler bug, not a program's
+       [(begin) (error 'render "~a: a begin where a value belongs" (form-location stx))]
        [(raise)
         (when (not (= 2 (length parts))) (not-le stx "a raise takes one expression"))
         (need 'raise)
@@ -268,8 +265,18 @@
 
 ;; check-expression has said that the last form of a body is an expression
 (define (body-lines forms)
-  (append (for/list ([f (in-list (drop-right forms 1))]) (statement f))
-          (list (format "return ~a" (expr (last forms))))))
+  (append (for-list-statements (drop-right forms 1))
+          (value-lines (last forms))))
+
+;; the value of a body, and of a begin where a value is wanted: a begin there is
+;; its statements and then the expression that is the value
+(define (value-lines f)
+  (cond [(and (pair? (syntax->list f)) (eq? (head f) 'begin))
+         (define parts (cdr (syntax->list f)))
+         (append (for-list-statements (drop-right parts 1)) (value-lines (last parts)))]
+        [else (list (format "return ~a" (expr f)))]))
+
+(define (for-list-statements forms) (for/list ([f (in-list forms)]) (statement f)))
 
 (define (procedure-def name params keywords rest forms)
   (define saved-declarations declarations)

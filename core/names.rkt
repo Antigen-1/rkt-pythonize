@@ -46,10 +46,10 @@
 (require uuid)
 
 (provide python-name python-keyword-name python-name-style
-         generated-name generated-prefix prelude-prefix
+         generated-name generated-prefix prelude-prefix temporary-name
          piece-name piece-call called-piece
          infix prefix operators runtime-pieces pieces piece-order
-         runtime-names python-builtins known-runtime-name?)
+         runtime-names python-builtins known-runtime-name? python-constant?)
 
 ;; ---- what a name is in Python
 
@@ -162,14 +162,21 @@
                            (object-has-attr? . object-has-attr?)))])
     (values (car p) (cdr p))))
 
+;; Python's own keywords, which a name of a program may not be: one wears a
+;; trailing _ instead.  False, None and True are not here: they are the
+;; constants a program may read -- None is what the threading operators
+;; interrupt on -- and binding one is what the checks refuse.
 (define reserved
-  '("False" "None" "True" "and" "as" "assert" "async" "await" "break" "class"
+  '("and" "as" "assert" "async" "await" "break" "class"
     "continue" "def" "del" "elif" "else" "except" "finally" "for" "from"
     "global" "if" "import" "in" "is" "lambda" "nonlocal" "not" "or" "pass"
     "raise" "return" "try" "while" "with" "yield"))
 
+;; begin is not here: a begin where a value belongs is lifted into a procedure
+;; of its own, and one that stands as a statement is statements, so the runtime
+;; never sees one
 (define piece-order
-  '(import begin raise trampoline with-handler list apply keyword-apply
+  '(import raise trampoline with-handler list apply keyword-apply
     object-ref object-set! object-get-attr object-set-attr! object-has-attr?))
 
 ;; ---- the prelude
@@ -213,8 +220,17 @@
 ;; other, so the one that is a Python keyword wears the underscore the
 ;; conversion gives it
 (define own-piece-names
-  (hasheq 'import "import_module" 'begin "begin" 'raise "raise_"
+  (hasheq 'import "import_module" 'raise "raise_"
           'trampoline "trampoline" 'with-handler "with_handler"))
+
+;; a name a generated form binds, where the program did not write one: the base
+;; name when the forms around it do not use it, and one the compiler's own UUID
+;; keeps apart when they do -- so a generated form cannot capture a name the
+;; program wrote, and the common case still reads as the base name
+(define (temporary-name base taken)
+  (if (and (memq base taken) #t)
+      (string->symbol (format "~a_~a" base (uuid-part)))
+      base))
 
 ;; the LE name a pass writes where the compiler calls a piece itself: a program
 ;; writes the piece's own name, and the compiler writes this one, so a program
@@ -240,7 +256,6 @@
                   "def ~a(name):"
                   "    \"\"\"(import x): the Python module the string x names.\"\"\""
                   "    return importlib.import_module(name)")
-   'begin (list "def ~a(*values):" "    return values[-1]")
    'raise (list "class ~tRaised(Exception):" "    def __init__(self, value):"
                 "        super().__init__(value)" "        self.value = value" ""
                 "def ~a(value):" "    raise ~tRaised(value)")
@@ -268,10 +283,19 @@
 (define runtime-names
   (make-parameter (append (hash-keys runtime-pieces) operators)))
 
+;; the Python constants a program may read by name: Python's own three
+(define python-constants '("False" "None" "True"))
+
+;; is this name one of them?  A program reads them, and does not bind them: the
+;; conversion leaves the name as it is, and the checks say no to a binder.
+(define (python-constant? sym)
+  (and (member (python-name sym) python-constants) #t))
+
 ;; Python names a lifted program may call without the program defining them
 (define python-builtins
   (make-parameter
-   '("abs" "all" "any" "bin" "bool" "bytes" "callable" "chr" "dict" "dir"
+   '("False" "None" "True"
+     "abs" "all" "any" "bin" "bool" "bytes" "callable" "chr" "dict" "dir"
      "divmod" "enumerate" "filter" "float" "format" "frozenset" "getattr"
      "hasattr" "hash" "hex" "id" "input" "int" "isinstance" "issubclass" "iter"
      "len" "list" "locals" "map" "max" "min" "next" "object" "oct" "open" "ord"

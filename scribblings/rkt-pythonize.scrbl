@@ -98,8 +98,10 @@ compiled, and there is nothing left of it at run time.}
 @itemlist[
 @item{@filepath{core/expand-macro.rkt} -- LE to LE: a macro a @racket[defmacro]
 bound is expanded where its name is bound.}
-@item{@filepath{core/expand-cond.rkt} -- LE to LE: a @racket[cond] becomes the
-nested @racket[if]s it means, each clause body a @racket[begin].}
+@item{@filepath{syntax/cond.rkt}, @filepath{syntax/thread.rkt} -- LE to LE, the
+high-level syntax: a @racket[cond] becomes the nested @racket[if]s it means,
+each clause body a @racket[begin], and @racket[->] and @racket[->>] become the
+calls they mean, run by a @racket[trampoline].}
 @item{@filepath{core/check-expression.rkt} -- LE to LE: refuses a statement where
 an expression belongs, and a Racket form that is not LE.}
 @item{@filepath{core/check-scope.rkt} -- LE to LE: a name bound by a parameter, by
@@ -369,7 +371,6 @@ does.
         (list @racket[(raise e)] @elem{@tt{raise_} and @tt{Raised}})
         (list @racket[(with-handler h e ...)] @tt{with_handler})
         (list @racket[(trampoline s* ... e)] @tt{trampoline})
-        (list @racket[begin] @elem{in an expression: @tt{begin}})
         (list @racket[(import x)] @tt{import_module})
         (list @racket[(list 1 2)] @tt{list})
         (list @racket[(apply f xs)] @tt{apply})

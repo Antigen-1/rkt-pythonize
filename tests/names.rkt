@@ -74,9 +74,9 @@
     (check-equal? (snake-name 'a?b) "a_pb"))
 
   (test-case "a Python keyword takes a trailing _ in either style"
-    (for ([case (in-list '((class "class_") (lambda "lambda_") (None "None_")
-                           (True "True_") (is "is_") (in "in_") (pass "pass_")
-                           (yield "yield_") (global "global_") (async "async_")))])
+    (for ([case (in-list '((class "class_") (lambda "lambda_") (is "is_")
+                           (in "in_") (pass "pass_") (yield "yield_")
+                           (global "global_") (async "async_")))])
       (check-equal? (snake-name (car case)) (cadr case))
       (check-equal? (camel-name (car case)) (cadr case)))
     ;; and a name that only becomes a keyword is not one
@@ -139,6 +139,16 @@
     (for ([name (in-list (list lambda-name inner-name object-name))])
       (check-equal? (python-name name) (symbol->string name))))
 
+  (test-case "a name a generated form binds keeps off the names around it"
+    ;; the base name when nothing the form writes uses it
+    (check-equal? (temporary-name 'value '(f a)) 'value)
+    ;; and one the compiler's own UUID keeps apart when something does
+    (define taken (temporary-name 'value '(value f a)))
+    (check-not-equal? taken 'value)
+    (check-true (regexp-match? #px"^value_[0-9a-f]{8}$" (symbol->string taken)))
+    ;; it is a Python name, which the conversion gives back
+    (check-equal? (python-name taken) (symbol->string taken)))
+
   (test-case "a piece's name is the prelude's prefix and the piece's own"
     (parameterize ([prelude-prefix ""])
       (check-equal? (piece-name 'list) "list")
@@ -146,21 +156,22 @@
       (check-equal? (piece-name 'object-set!) "object_set_b")
       (check-equal? (piece-name 'object-has-attr?) "object_has_attr_p")
       (check-equal? (piece-name 'keyword-apply) "keyword_apply")
-      (check-equal? (piece-name 'begin) "begin")
       (check-equal? (piece-name 'raise) "raise_")
       (check-equal? (piece-name 'trampoline) "trampoline")
       (check-equal? (piece-name 'with-handler) "with_handler")
-      (check-equal? (piece-name 'import) "import_module"))
+      (check-equal? (piece-name 'import) "import_module")
+      ;; a begin where a value belongs is lifted, so the runtime has no piece for it
+      (check-false (memq 'begin piece-order))
+      (check-exn exn:fail? (lambda () (piece-name 'begin))))
     (parameterize ([prelude-prefix "_pz_"])
       (check-equal? (piece-name 'list) "_pz_list")
       (check-equal? (piece-name 'object-ref) "_pz_object_ref")
-      (check-equal? (piece-name 'begin) "_pz_begin")
       (check-equal? (piece-name 'raise) "_pz_raise_")
       (parameterize ([python-name-style 'camel])
         (check-equal? (piece-name 'object-ref) "_pz_objectRef")
         (check-equal? (piece-name 'keyword-apply) "_pz_keywordApply"))
       ;; the runtime's own names are the prelude's and do not follow the style
-      (check-equal? (piece-name 'begin) "_pz_begin"))
+      (check-equal? (piece-name 'with-handler) "_pz_with_handler"))
     ;; the prefix is a parameter, and by default it is one the compiler makes up
     (check-true (string? (prelude-prefix)))
     ;; a UUID's first bytes, so two runs and two programs do not share one

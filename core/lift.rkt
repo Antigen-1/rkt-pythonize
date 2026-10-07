@@ -121,11 +121,11 @@
   (append lifted-defs statements))
 
 (define (lift-top f env)
-  (cond [(not (define? f)) (lift f env '())]
+  (cond [(not (define? f)) (lift f env '() #f)]
         [else
          (define target (cadr (syntax->list f)))
          (cond [(identifier? target)
-                (mk f (list 'define target (lift (caddr (syntax->list f)) env '())))]
+                (mk f (list 'define target (lift (caddr (syntax->list f)) env '() #t)))]
                [else
                 ;; a top-level procedure keeps its name, and its keyword
                 ;; parameters, which are the Python names a call writes
@@ -151,7 +151,7 @@
   (for ([entry (in-list procs)])
     (set-proc-captured! (cadr entry) (captures (car entry) env*)))
   (for ([entry (in-list procs)]) (lift-proc entry env*))
-  (for/list ([f (in-list forms)]) (lift f env* current)))
+  (for/list ([f (in-list forms)]) (lift f env* current #f)))
 
 (define (bind-lift forms env)
   (for/fold ([env env] [procs '()]) ([f (in-list forms)] #:when (define? f))
@@ -198,7 +198,31 @@
                           (append (list lifted) names params kws)))
          (mk stx (list 'lambda target call))]))
 
-(define (lift stx env current)
+;; a lambda becomes a top-level define whose leading parameters are what it
+;; captures: (values the name it was lifted to, the names it captures, and the
+;; signature it takes where it stands)
+(define (lift-lambda stx env)
+  (define parts (syntax->list stx))
+  (define target (cadr parts))
+  (define body (cddr parts))
+  (when (null? body) (not-le stx "a lambda needs a body"))
+  (define-values (params keywords rest) (signature-parts (syntax->datum target)))
+  (define captured (captures stx env))
+  (define names (map car captured))
+  (define lifted (fresh #f))
+  (define env* (bind-params params keywords rest env))
+  (add-def (mk stx (list* 'define
+                          (mk stx (signature-datum
+                                   (cons lifted (append names params)) keywords rest))
+                          (lift-body body env* captured))))
+  (values lifted names params keywords rest))
+
+;; value? is #t where the form is there for its value: a begin in such a place is
+;; lifted into a procedure of its own and called where it stands, so the Python
+;; is a def of statements rather than one call whose arguments are the program.
+;; A body, and a begin that stands as a statement, keep their begins: that is
+;; where a definition means something, and where a begin's semantics live.
+(define (lift stx env current value?)
   (cond
     [(identifier? stx) stx]
     [(not (syntax->list stx)) stx]
@@ -207,23 +231,23 @@
      (case (head stx)
        [(quote) stx]
        [(lambda)
-        (define target (cadr parts))
-        (define body (cddr parts))
-        (when (null? body) (not-le stx "a lambda needs a body"))
-        (define-values (params keywords rest) (signature-parts (syntax->datum target)))
-        (define captured (captures stx env))
-        (define names (map car captured))
-        (define lifted (fresh #f))
-        (define env* (bind-params params keywords rest env))
-        (add-def (mk stx (list* 'define
-                                (mk stx (signature-datum
-                                         (cons lifted (append names params)) keywords rest))
-                                (lift-body body env* captured))))
+        (define-values (lifted names params keywords rest) (lift-lambda stx env))
         (reference stx lifted names params keywords rest)]
+       [(begin)
+        (cond
+          [(not value?)
+           (mk stx (cons 'begin
+                         (for/list ([f (in-list (cdr parts))]) (lift f env current #f))))]
+          [(null? (cdr parts)) (not-le stx "an empty begin has no value")]
+          [else
+           ;; the begin as a procedure of its own, called where it stands
+           (define-values (lifted names params keywords rest)
+             (lift-lambda (mk stx (list* 'lambda '() (cdr parts))) env))
+           (mk stx (cons lifted names))])]
        [(define)
         (define target (cadr parts))
         (cond [(identifier? target)
-               (mk stx (list 'define target (lift (caddr parts) env current)))]
+               (mk stx (list 'define target (lift (caddr parts) env current #t)))]
               [else
                ;; the lifted procedure under its own local name
                (define p (lookup env (target-name target)))
@@ -232,22 +256,32 @@
                                         (proc-params p) (proc-keywords p) (proc-rest p))))])]
        [(set!)
         (check-set! stx env current)
-        (mk stx (list 'set! (cadr parts) (lift (caddr parts) env current)))]
+        (mk stx (list 'set! (cadr parts) (lift (caddr parts) env current #t)))]
+       [(if)
+        (mk stx (list 'if (lift (cadr parts) env current #t)
+                      (lift (caddr parts) env current value?)
+                      (lift (cadddr parts) env current value?)))]
        [(with-handler)
-        (mk stx (list* 'with-handler (lift (cadr parts) env current)
-                       (for/list ([f (in-list (cddr parts))]) (lift f env current))))]
+        (mk stx (list* 'with-handler (lift (cadr parts) env current #t)
+                       (for/list ([f (in-list (cddr parts))]) (lift f env current #f))))]
        [(trampoline)
         (mk stx (list* 'trampoline
-                       (for/list ([f (in-list (cdr parts))]) (lift f env current))))]
+                       (for/list ([f (in-list (cdr parts))]) (lift f env current #t))))]
        [else
         (define f (car parts))
-        (define binding (and (identifier? f) (lookup env (syntax-e f))))
-        (define args (for/list ([a (in-list (cdr parts))]) (lift a env current)))
-        (cond [(proc? binding)
-               (check-captures stx binding env)
-               (mk stx (cons (proc-lifted binding)
-                             (append (map car (proc-captured binding)) args)))]
-              [else (mk stx (cons (lift f env current) args))])])]))
+        (define args (for/list ([a (in-list (cdr parts))]) (lift a env current #t)))
+        (cond [(and (pair? (syntax->list f)) (eq? (head f) 'lambda))
+               ;; a lambda called where it stands: lift it and call it, what it
+               ;; captures first, as a call to a lifted procedure does
+               (define-values (lifted names params keywords rest) (lift-lambda f env))
+               (mk stx (cons lifted (append names args)))]
+              [else
+               (define binding (and (identifier? f) (lookup env (syntax-e f))))
+               (cond [(proc? binding)
+                      (check-captures stx binding env)
+                      (mk stx (cons (proc-lifted binding)
+                                    (append (map car (proc-captured binding)) args)))]
+                     [else (mk stx (cons (lift f env current #t) args))])])])]))
 
 ;; the captures of the lifted procedure have to be the variables in scope here,
 ;; or the value passed in would be the wrong one

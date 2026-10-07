@@ -14,6 +14,36 @@ ones are listed too.  Everything before 2.0.0 was a different design -- a
 Lisp-to-Python transpiler (LB, then LE, then LM) driven by a nanopass pipeline,
 with a runtime macro system of its own; the last of those was 1.3.3.
 
+@section[#:style 'unnumbered]{3.11.6}
+
+@itemlist[
+@item{A @racket[begin] where a value belongs is lifted into a procedure of its
+own and called where it stands, so the Python is a @tt{def} of statements rather
+than one call whose arguments are the program: @racket[(if (begin (print "t") #t)
+1 2)] is a @tt{def} that prints and returns, and a call to it.  A begin that
+stands as a statement, and the begin a body's forms make, are statements as
+before.  The runtime has no @tt{begin} piece any more.}
+@item{That a definition cannot stand in a begin where a value belongs is
+@racket[begin]'s semantics, not a limit of the compiler -- a begin sequences
+expressions, and a definition belongs in a body, where a name is defined -- and
+the refusal now says so.}
+@item{@filepath{syntax/} is the high-level syntax, which runs after the macros
+and before the checks: @filepath{syntax/cond.rkt}, the @racket[cond] expansion
+that was @filepath{core/expand-cond.rkt}, and @filepath{syntax/thread.rkt},
+which is new.}
+@item{@racket[(-> x step ...)] threads into the first argument of each step and
+@racket[(->> x step ...)] into the last positional one.  @racket[None]
+interrupts: a step whose value is None ends the chain there and the chain's value
+is None, and the steps after it do not run.  The chain is run by
+@racket[trampoline] -- each step answers the call that makes the next one -- so
+it is flat however many steps it has, and the value of the last step comes back
+in a one-element list the driver unwraps, so a value that is callable is not
+mistaken for the next step.}
+@item{@tt{None}, @tt{True} and @tt{False} are the Python constants a program
+reads, and not names a Python keyword takes a trailing @tt{_} from:
+@racket[None] is what the threading operators interrupt on.  Binding one is a
+compile error.}]
+
 @section[#:style 'unnumbered]{3.10.6}
 
 @itemlist[
