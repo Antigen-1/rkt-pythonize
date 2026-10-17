@@ -6,6 +6,33 @@ design – a Lisp-to-Python transpiler (LB, then LE, then LM) driven by a
 nanopass pipeline, with a runtime macro system of its own; the last of
 those was 1.3.3.
 
+## 4.1.2
+
+* There is a build system.  `"builder.rkt"` exports `build-executable`,
+  and `"builder/"` holds the four stages it runs: the project is read
+  and refused (`"builder/project.rkt"`), its sources are rendered
+  (`"builder/render.rkt"`), the venv and PyInstaller are made
+  (`"builder/venv.rkt"`), and PyInstaller writes the executable
+  \(`"builder/pack.rkt"`).
+
+* A project is a directory whose `"src/"` is the program: every `".rkt"`
+  there provides `python` and becomes the `".py"` at the same path,
+  every `".py"` is copied, a directory is a package that gets an
+  `"__init__.py"` if the program did not write one, and a file’s name is
+  its module’s name – the build refuses a name Python cannot be, rather
+  than renaming it.  A project’s `"installer.rkt"` says
+  `(build-executable here)`, so `raco pkg install` builds the program.
+
+* The build starts with nothing but `python3` and its `venv` module: the
+  venv is made on first use, under the add-on directory, and PyInstaller
+  is installed into it.  The executable is one file and carries that
+  venv’s Python; `__file__` works, and the build names every module of
+  the program to PyInstaller, because `(import x)` renders to
+  `importlib.import_module` and PyInstaller cannot see it.
+
+* The README has a “Building a program” chapter, `"info.rkt"` is 4.1.2,
+  and the layout lists the build system.
+
 ## 4.0.2
 
 * The names the compiler makes up use the whole UUID: 32 hex digits, 128

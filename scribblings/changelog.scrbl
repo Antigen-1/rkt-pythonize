@@ -1,8 +1,8 @@
 #lang scribble/manual
 
-@; CHANGELOG.md is generated from this file: run ./build-docs.sh after editing.
-@; The changelog is also the last chapter of the manual: rkt-pythonize.scrbl
-@; pulls this file in with @include-section.
+@; CHANGELOG.md is generated from this file: run ./build-docs.rkt after editing.
+@; The changelog is also the manual's last chapter: manual.rkt assembles it,
+@; with the README's chapters, into the manual.
 
 @require[@for-label[rkt-pythonize
                     racket/base]]
@@ -13,6 +13,36 @@ Newest first.  Every version here is a state someone could have, so the small
 ones are listed too.  Everything before 2.0.0 was a different design -- a
 Lisp-to-Python transpiler (LB, then LE, then LM) driven by a nanopass pipeline,
 with a runtime macro system of its own; the last of those was 1.3.3.
+
+
+@section[#:style 'unnumbered]{4.1.2}
+
+@itemlist[
+@item{There is a build system.  @filepath{builder.rkt} exports
+@racket[build-executable], and @filepath{builder/} holds the four stages it
+runs: the project is read and refused (@filepath{builder/project.rkt}), its
+sources are rendered (@filepath{builder/render.rkt}), the venv and PyInstaller
+are made (@filepath{builder/venv.rkt}), and PyInstaller writes the executable
+(@filepath{builder/pack.rkt}).}
+
+@item{A project is a directory whose @filepath{src/} is the program: every
+@filepath{.rkt} there provides @racket[python] and becomes the @filepath{.py} at
+the same path, every @filepath{.py} is copied, a directory is a package that
+gets an @filepath{__init__.py} if the program did not write one, and a file's
+name is its module's name -- the build refuses a name Python cannot be, rather
+than renaming it.  A project's @filepath{installer.rkt} says
+@racket[(build-executable here)], so @exec{raco pkg install} builds the
+program.}
+
+@item{The build starts with nothing but @exec{python3} and its @tt{venv}
+module: the venv is made on first use, under the add-on directory, and
+PyInstaller is installed into it.  The executable is one file and carries that
+venv's Python; @tt{__file__} works, and the build names every module of the
+program to PyInstaller, because @racket[(import x)] renders to
+@racket[importlib.import_module] and PyInstaller cannot see it.}
+
+@item{The README has a ``Building a program'' chapter, @filepath{info.rkt} is
+4.1.2, and the layout lists the build system.}]
 
 @section[#:style 'unnumbered]{4.0.2}
 

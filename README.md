@@ -43,6 +43,10 @@ Nothing else is exported: there is no `#lang`, no reader, no command
 line, and no Racket form is redefined or shadowed.  The macro is the
 whole interface.
 
+The package also builds programs: Building a program describes
+`build-executable`, which turns a project into one executable.  The
+compiler is still this one macro.
+
 ```racket
 #lang racket/base                                        
 (require rkt-pythonize)                                  
@@ -815,7 +819,7 @@ program does with the string is up to it.
 
 `CHANGELOG.md` says what changed in each version.  Both `README.md` and
 `CHANGELOG.md` are generated: edit `scribblings/readme.scrbl` and
-`scribblings/changelog.scrbl`, then run `./build-docs.sh`.
+`scribblings/changelog.scrbl`, then run `./build-docs.rkt`.
 
 A macro is written outside the program, in Racket, with `defmacro`, and
 used inside `#%python-code`:
@@ -935,6 +939,130 @@ it with `python3`.  `PLTCOLLECTS` is only needed when an older copy of
 the package is installed; with the package installed, `raco test -x -p
 rkt-pythonize` is enough.
 
+## Building a program
+
+```racket
+ (require rkt-pythonize/builder) package: [base](https://pkgs.racket-lang.org/package/base)
+```
+
+`rkt-pythonize` also builds a program: `build-executable` turns a
+directory of Racket and Python into one executable, with
+[PyInstaller](https://pyinstaller.org/).  The compiler is not involved
+beyond what it already does – every `".rkt"` of the program is a module
+whose `python` is the Python it renders – so the build system is a
+second module of the package, and the library still exports one macro.
+
+A project is a directory whose `"src/"` is the program:
+
+```racket
+myapp/                                               
+  src/                                               
+    main.rkt      the entry: where the program starts
+    util.rkt      another module of the program      
+    helper.py     a Python module, copied as it is   
+    net/http.rkt  a module in a package: net/http.py 
+  build/          what the build writes              
+```
+
+* Every `".rkt"` under `"src/"` is a module of the program: it provides
+  `python`, the Python it renders, and the build writes that Python at
+  the same path with a `".py"` extension.  Every `".py"` under `"src/"`
+  is a module of the program, copied as it is.
+
+* A directory is a package, and one the program did not write an
+  `"__init__.py"` for gets an empty one.
+
+* A file’s name is its Python module’s name: `"my-util.rkt"` would be
+  the module `my-util`, which `(import my-util)` cannot name, so the
+  build refuses the file rather than renaming it.  Two files cannot be
+  one module.
+
+* Racket that is only for the build – a macro library – lives outside
+  `"src/"`, and the modules that use it require it by its path.
+
+* The program starts in the module `"src/main.rkt"`; `#:entry` names
+  another.
+
+A project’s `"installer.rkt"` builds it, and naming that file in
+`"info.rkt"` makes `raco pkg install` build the program:
+
+```racket
+#lang racket/base              
+(require racket/runtime-path   
+         rkt-pythonize/builder)
+                               
+(define-runtime-path here ".") 
+(build-executable here)        
+```
+
+```racket
+(build-executable  project-directory                 
+                  [#:source source                   
+                   #:dest dest                       
+                   #:name name                       
+                   #:entry entry                     
+                   #:python python                   
+                   #:venv venv                       
+                   #:pyinstaller pyinstaller         
+                   #:onefile? onefile?               
+                   #:quiet? quiet?])         -> path?
+  project-directory : path-string?                   
+  source : path-string? = "src"                      
+  dest : path-string? = "build"                      
+  name : (or/c path-string? #f) = #f                 
+  entry : string? = "main"                           
+  python : path-string? = "python3"                  
+  venv : (or/c path-string? #f) = #f                 
+  pyinstaller : (or/c string? #f) = "6.22.3"         
+  onefile? : boolean? = #t                           
+  quiet? : boolean? = #f                             
+```
+
+Builds the program of `project-directory` and returns the path of the
+executable it wrote.
+
+`source` is the directory the program is in, and `dest` is where the
+build writes: `"python/"` is the rendered program, `"pyinstaller/"` is
+PyInstaller’s work, and `"bin/"` is the executable.  `dest` cannot be
+inside `source`.
+
+`name` is the executable’s name, the project directory’s by default, and
+`entry` is the module the program starts in.
+
+`python` is the interpreter that makes the venv, and so the Python the
+executable carries.  `venv` is the venv PyInstaller lives in; by default
+it is one per installation, under the add-on directory, made on first
+use and reused after that.  `pyinstaller` is the version installed into
+the venv; `#f` takes the version that is already there.
+
+`onefile?` makes one file, and `#f` a directory that holds the
+executable beside its libraries.  `quiet?` says nothing except on error.
+
+The build starts with nothing but `python3` and its `venv` module: the
+first build makes the venv and installs PyInstaller into it.
+PyInstaller needs `ldd`, `objdump` and `objcopy`, and no C compiler;
+there is no Rust and nothing else to install.
+
+The executable is one file.  It unpacks itself into a temporary
+directory at startup, so `__file__` is a real path and a module that
+reads a file beside it works, and `sys.frozen` is true.  It carries the
+venv’s Python, and its modules were byte-compiled by that Python: a
+`".py"` that uses a newer Python’s syntax fails the build, and
+`#:python` is what picks the version.  PyInstaller bundles the Python
+library but not the C library, so the executable runs where `glibc` is
+at least the build machine’s.
+
+The modules of the program reach each other the way LE says: `(import
+util)` renders to `importlib.import_module("util")`, which PyInstaller
+cannot see by itself, so the build names every module of the program to
+it.  A module that is reached only through a name the program computes
+is not part of the program as far as the build is concerned, and is not
+there at run time.
+
+The bundled modules are bytecode, and bytecode can be taken apart.  If
+what a program is must not be readable, this build is not the tool for
+it.
+
 ## Layout
 
 ```racket
@@ -946,13 +1074,20 @@ core/lift.rkt                LL -> LB: procedures lifted to the top level
 core/render.rkt              LB -> Python                                 
 core/names.rkt               what a name is in Python, and the name tables
 core/params.rkt              parameter lists, and the arguments of a call 
+builder.rkt                  the build system: build-executable           
+builder/project.rkt          a project, read and refused                  
+builder/render.rkt           .rkt -> .py, and .py copied                  
+builder/venv.rkt             the venv, and pyinstaller in it              
+builder/pack.rkt             pyinstaller, and every module named to it    
 tests/dsl.rkt                end-to-end tests                             
 tests/names.rkt              the conversion, character by character       
 tests/camel.rkt              a module that set the name style             
-scribblings/rkt-pythonize.scrbl  the manual                               
+tests/builder.rkt            the build system's tests                     
+scribblings/manual.rkt       the manual, assembled from the two documents 
 scribblings/readme.scrbl     the README, also the manual's first chapter  
 scribblings/changelog.scrbl  the changelog, also the manual's last chapter
-build-docs.sh                renders both into README.md and CHANGELOG.md 
+build-docs.rkt               renders both into README.md and CHANGELOG.md 
+installer.rkt                runs build-docs when the package is installed
 CHANGELOG.md                 what changed in each version                 
 ```
 

@@ -1,8 +1,8 @@
 #lang scribble/manual
 
-@; README.md is generated from this file: run ./build-docs.sh after editing.
-@; The README is also the first chapter of the manual: rkt-pythonize.scrbl
-@; pulls this file in with @include-section.
+@; README.md is generated from this file: run ./build-docs.rkt after editing.
+@; The README is also the manual's chapters: manual.rkt assembles them,
+@; with the changelog, into the manual.
 
 @require[@for-label[rkt-pythonize
                     racket/base]]
@@ -105,6 +105,10 @@ print(fact(5))
 
 Nothing else is exported: there is no @tt{#lang}, no reader, no command line,
 and no Racket form is redefined or shadowed.  The macro is the whole interface.
+
+The package also builds programs: @secref["build"] describes
+@racket[build-executable], which turns a project into one executable.  The
+compiler is still this one macro.
 
 
 @codeblock|{
@@ -830,7 +834,7 @@ program does with the string is up to it.
 
 @tt{CHANGELOG.md} says what changed in each version.  Both @tt{README.md} and
 @tt{CHANGELOG.md} are generated: edit @tt{scribblings/readme.scrbl} and
-@tt{scribblings/changelog.scrbl}, then run @tt{./build-docs.sh}.
+@tt{scribblings/changelog.scrbl}, then run @tt{./build-docs.rkt}.
 
 
 A macro is written outside the program, in Racket, with @racket[defmacro], and
@@ -941,6 +945,111 @@ The tests use the macro directly, look at the Python it renders, and run it with
 package is installed; with the package installed,
 @exec{raco test -x -p rkt-pythonize} is enough.
 
+@section[#:style 'unnumbered #:tag "build"]{Building a program}
+
+@defmodule[rkt-pythonize/builder]
+
+@tt{rkt-pythonize} also builds a program: @racket[build-executable] turns a
+directory of Racket and Python into one executable, with
+@hyperlink["https://pyinstaller.org/"]{PyInstaller}.  The compiler is not
+involved beyond what it already does -- every @filepath{.rkt} of the program is
+a module whose @racket[python] is the Python it renders -- so the build system
+is a second module of the package, and the library still exports one macro.
+
+A project is a directory whose @filepath{src/} is the program:
+
+@plain-code|{
+myapp/
+  src/
+    main.rkt      the entry: where the program starts
+    util.rkt      another module of the program
+    helper.py     a Python module, copied as it is
+    net/http.rkt  a module in a package: net/http.py
+  build/          what the build writes
+}|
+
+@itemlist[
+@item{Every @filepath{.rkt} under @filepath{src/} is a module of the program:
+it provides @racket[python], the Python it renders, and the build writes that
+Python at the same path with a @filepath{.py} extension.  Every @filepath{.py}
+under @filepath{src/} is a module of the program, copied as it is.}
+@item{A directory is a package, and one the program did not write an
+@filepath{__init__.py} for gets an empty one.}
+@item{A file's name is its Python module's name: @filepath{my-util.rkt} would be
+the module @tt{my-util}, which @racket[(import my-util)] cannot name, so the
+build refuses the file rather than renaming it.  Two files cannot be one
+module.}
+@item{Racket that is only for the build -- a macro library -- lives outside
+@filepath{src/}, and the modules that use it require it by its path.}
+@item{The program starts in the module @filepath{src/main.rkt}; @racket[#:entry]
+names another.}]
+
+A project's @filepath{installer.rkt} builds it, and naming that file in
+@filepath{info.rkt} makes @exec{raco pkg install} build the program:
+
+@codeblock|{
+#lang racket/base
+(require racket/runtime-path
+         rkt-pythonize/builder)
+
+(define-runtime-path here ".")
+(build-executable here)
+}|
+
+@defproc[(build-executable [project-directory path-string?]
+                           [#:source source path-string? "src"]
+                           [#:dest dest path-string? "build"]
+                           [#:name name (or/c path-string? #f) #f]
+                           [#:entry entry string? "main"]
+                           [#:python python path-string? "python3"]
+                           [#:venv venv (or/c path-string? #f) #f]
+                           [#:pyinstaller pyinstaller (or/c string? #f) "6.22.3"]
+                           [#:onefile? onefile? boolean? #t]
+                           [#:quiet? quiet? boolean? #f])
+          path?]{
+Builds the program of @racket[project-directory] and returns the path of the
+executable it wrote.
+
+@racket[source] is the directory the program is in, and @racket[dest] is where
+the build writes: @filepath{python/} is the rendered program,
+@filepath{pyinstaller/} is PyInstaller's work, and @filepath{bin/} is the
+executable.  @racket[dest] cannot be inside @racket[source].
+
+@racket[name] is the executable's name, the project directory's by default, and
+@racket[entry] is the module the program starts in.
+
+@racket[python] is the interpreter that makes the venv, and so the Python the
+executable carries.  @racket[venv] is the venv PyInstaller lives in; by default
+it is one per installation, under the add-on directory, made on first use and
+reused after that.  @racket[pyinstaller] is the version installed into the venv;
+@racket[#f] takes the version that is already there.
+
+@racket[onefile?] makes one file, and @racket[#f] a directory that holds the
+executable beside its libraries.  @racket[quiet?] says nothing except on
+error.}
+
+The build starts with nothing but @exec{python3} and its @tt{venv} module: the
+first build makes the venv and installs PyInstaller into it.  PyInstaller needs
+@exec{ldd}, @exec{objdump} and @exec{objcopy}, and no C compiler; there is no
+Rust and nothing else to install.
+
+The executable is one file.  It unpacks itself into a temporary directory at
+startup, so @tt{__file__} is a real path and a module that reads a file beside
+it works, and @tt{sys.frozen} is true.  It carries the venv's Python, and its
+modules were byte-compiled by that Python: a @filepath{.py} that uses a newer
+Python's syntax fails the build, and @racket[#:python] is what picks the
+version.  PyInstaller bundles the Python library but not the C library, so the
+executable runs where @tt{glibc} is at least the build machine's.
+
+The modules of the program reach each other the way LE says: @racket[(import
+util)] renders to @tt{importlib.import_module("util")}, which PyInstaller
+cannot see by itself, so the build names every module of the program to it.  A
+module that is reached only through a name the program computes is not part of
+the program as far as the build is concerned, and is not there at run time.
+
+The bundled modules are bytecode, and bytecode can be taken apart.  If what a
+program is must not be readable, this build is not the tool for it.
+
 @section[#:style 'unnumbered]{Layout}
 
 @codeblock|{
@@ -952,13 +1061,20 @@ core/lift.rkt                LL -> LB: procedures lifted to the top level
 core/render.rkt              LB -> Python
 core/names.rkt               what a name is in Python, and the name tables
 core/params.rkt              parameter lists, and the arguments of a call
+builder.rkt                  the build system: build-executable
+builder/project.rkt          a project, read and refused
+builder/render.rkt           .rkt -> .py, and .py copied
+builder/venv.rkt             the venv, and pyinstaller in it
+builder/pack.rkt             pyinstaller, and every module named to it
 tests/dsl.rkt                end-to-end tests
 tests/names.rkt              the conversion, character by character
 tests/camel.rkt              a module that set the name style
-scribblings/rkt-pythonize.scrbl  the manual
+tests/builder.rkt            the build system's tests
+scribblings/manual.rkt       the manual, assembled from the two documents
 scribblings/readme.scrbl     the README, also the manual's first chapter
 scribblings/changelog.scrbl  the changelog, also the manual's last chapter
-build-docs.sh                renders both into README.md and CHANGELOG.md
+build-docs.rkt               renders both into README.md and CHANGELOG.md
+installer.rkt                runs build-docs when the package is installed
 CHANGELOG.md                 what changed in each version
 }|
 
