@@ -16,6 +16,16 @@ with a runtime macro system of its own; the last of those was 1.3.3.
 
 
 
+@section[#:style 'unnumbered]{4.2.4}
+
+@itemlist[
+@item{The committed @filepath{README.md} is generated where the package is
+installed, as the installer and @exec{raco setup} generate it: its module boxes
+name @tt{rkt-pythonize} rather than the source tree's @tt{base}.  The workflow's
+check regenerates the documents the same way, so it compares them instead of
+failing on the boxes.}]
+
+
 @section[#:style 'unnumbered]{4.2.3}
 
 @itemlist[

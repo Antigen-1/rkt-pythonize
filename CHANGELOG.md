@@ -6,6 +6,14 @@ design – a Lisp-to-Python transpiler (LB, then LE, then LM) driven by a
 nanopass pipeline, with a runtime macro system of its own; the last of
 those was 1.3.3.
 
+## 4.2.4
+
+* The committed `"README.md"` is generated where the package is
+  installed, as the installer and `raco setup` generate it: its module
+  boxes name `rkt-pythonize` rather than the source tree’s `base`.  The
+  workflow’s check regenerates the documents the same way, so it
+  compares them instead of failing on the boxes.
+
 ## 4.2.3
 
 * The workflow’s check that the generated documents match their sources

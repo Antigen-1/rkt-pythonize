@@ -1,7 +1,8 @@
 # rkt-pythonize
 
 ```racket
- (require rkt-pythonize) package: [base](https://pkgs.racket-lang.org/package/base)
+ (require rkt-pythonize) package:                                                          
+                        [rkt-pythonize](https://pkgs.racket-lang.org/package/rkt-pythonize)
 ```
 
 ## Quick start
@@ -942,7 +943,8 @@ rkt-pythonize` is enough.
 ## Building a program
 
 ```racket
- (require rkt-pythonize/builder) package: [base](https://pkgs.racket-lang.org/package/base)
+ (require rkt-pythonize/builder) package:                                                          
+                                [rkt-pythonize](https://pkgs.racket-lang.org/package/rkt-pythonize)
 ```
 
 `rkt-pythonize` also builds a program: `build-executable` turns a
