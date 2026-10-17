@@ -13,6 +13,7 @@
 ;;   #:name        the executable's name         default: the directory's name
 ;;   #:source      where the program is          default: "src"
 ;;   #:entry       the module the program starts in, "main" by default
+;;   #:data        attachments, (cons source dest) ...   default: none
 ;;   #:dest        where the build writes        default: "build"
 ;;   #:python      the interpreter that makes the venv, "python3" by default
 ;;   #:venv        the venv pyinstaller lives in, if not the installation's
@@ -32,6 +33,7 @@
                           #:dest [dest "build"]
                           #:name [name #f]
                           #:entry [entry "main"]
+                          #:data [data '()]
                           #:python [python "python3"]
                           #:venv [venv #f]
                           #:pyinstaller [pyinstaller "6.22.3"]
@@ -41,12 +43,15 @@
                                 #:source source
                                 #:dest dest
                                 #:name name
-                                #:entry entry))
+                                #:entry entry
+                                #:data data))
   (unless quiet?
-    (printf "build: ~a, ~a module~a, from ~a\n"
+    (printf "build: ~a, ~a module~a, ~a attachment~a, from ~a\n"
             (project-name project)
             (length (project-modules project))
             (if (= 1 (length (project-modules project))) "" "s")
+            (length (project-attachments project))
+            (if (= 1 (length (project-attachments project))) "" "s")
             (path->string (project-source project))))
   (render-project project #:quiet? quiet?)
   (define venv-directory (or venv (default-venv-directory)))

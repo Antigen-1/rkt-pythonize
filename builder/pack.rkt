@@ -16,12 +16,15 @@
 
 (define (windows?) (eq? (system-type 'os) 'windows))
 
+;; --add-data writes SRC and DEST apart with the platform's path separator
+(define path-separator (if (windows?) ";" ":"))
+
 (define (executable-name name)
   (if (windows?) (string-append name ".exe") name))
 
 ;; every module of the program, and the packages they are in
 (define (hidden-imports project)
-  (define modules (project-modules project))
+  (define modules (cons runtime-module (project-modules project)))
   (sort (remove-duplicates
          (append modules (append-map packages-of modules))
          equal?)
@@ -51,6 +54,12 @@
            "--paths" (path->string python-directory))
      (append-map (lambda (module) (list "--hidden-import" module))
                  (hidden-imports project))
+     (append-map (lambda (attachment)
+                   (list "--add-data"
+                         (string-append (path->string (attachment-source attachment))
+                                        path-separator
+                                        (attachment-dest attachment))))
+                 (project-attachments project))
      (list (path->string (project-entry-file project)))))
   (unless quiet?
     (printf "build: pyinstaller ~a ~a\n"

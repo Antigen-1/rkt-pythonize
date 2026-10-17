@@ -15,6 +15,23 @@ Lisp-to-Python transpiler (LB, then LE, then LM) driven by a nanopass pipeline,
 with a runtime macro system of its own; the last of those was 1.3.3.
 
 
+
+@section[#:style 'unnumbered]{4.2.2}
+
+@itemlist[
+@item{The build system ships files.  The @filepath{data/} directory of a
+project is packed under @filepath{data/}, and @racket[#:data] names more, each a
+@racket[(cons source dest)].  The files are written under @filepath{build/} as
+well, so the rendered program runs from @filepath{build/python} with them, and a
+one-file executable unpacks them beside itself at startup.}
+
+@item{The build writes @filepath{rkt_pythonize_runtime.py}, and packs it: its
+@tt{path} (and @tt{base}) give the path of an attachment, @tt{read} its bytes,
+and @tt{text} its UTF-8 text, whether the program runs from the executable or
+from @filepath{build/python}.  The attachments are read only; the temporary
+directory a one-file executable unpacks into is removed when the program
+exits.}]
+
 @section[#:style 'unnumbered]{4.1.2}
 
 @itemlist[

@@ -17,24 +17,35 @@
 
 (provide (struct-out project)
          (struct-out source-file)
+         (struct-out attachment)
          read-project
          project-python-directory
          project-output-file
          project-entry-file
-         project-module-path)
+         project-module-path
+         runtime-module)
 
 ;; a source file of the program: its path, its path under the source
 ;; directory, the Python module it is, and what it is written in
 (struct source-file (path relative module kind) #:transparent)
 
-;; dir     the project's directory
-;; source  the program's directory, under dir
-;; dest    the directory the build writes, under dir
-;; name    the executable's name
-;; entry   the module the program starts in
-;; files   the program's source files, sorted
-;; modules the Python module names the program has, sorted
-(struct project (dir source dest name entry files modules) #:transparent)
+;; an attachment: a source file or directory of the project, and the relative
+;; path its contents land at under the program's root
+(struct attachment (source dest) #:transparent)
+
+;; the module the build writes, and packs, so a program can find what was
+;; attached to it
+(define runtime-module "rkt_pythonize_runtime")
+
+;; dir         the project's directory
+;; source      the program's directory, under dir
+;; dest        the directory the build writes, under dir
+;; name        the executable's name
+;; entry       the module the program starts in
+;; files       the program's source files, sorted
+;; modules     the Python module names the program has, sorted
+;; attachments the files and directories the program ships
+(struct project (dir source dest name entry files modules attachments) #:transparent)
 
 ;; a Python module name: what a file's name and its directories must be, so
 ;; that (import x) -- which renders the name as it is written -- finds it
@@ -121,13 +132,78 @@
 (define (project-entry-file project)
   (project-module-path (project-python-directory project) (project-entry project)))
 
+;; ---- attachments
+
+;; a destination is a path under the program's root: relative, no "..", and
+;; without the separator --add-data is written with
+(define (check-destination! source dest directory?)
+  (define (not-a-destination)
+    (error 'build-executable
+           "~a: ~s is not a destination under the program's root"
+           (path->string source) dest))
+  (unless (and (string? dest) (not (string=? dest ""))) (not-a-destination))
+  (when (regexp-match? #rx"[:;]" dest) (not-a-destination))
+  (unless (relative-path? (string->path dest)) (not-a-destination))
+  (when (regexp-match? #rx"(^|[/\\\\])\\.\\.([/\\\\]|$)" dest) (not-a-destination))
+  (when (and directory? (equal? dest "."))
+    (error 'build-executable
+           "~a: a directory needs a destination with a name, not ~s"
+           (path->string source) dest)))
+
+(define (attachment-of dir source dest)
+  (define source-path (build-path dir source))
+  (define directory? (directory-exists? source-path))
+  (unless (or directory? (file-exists? source-path))
+    (error 'build-executable "~a: nothing to attach" (path->string source-path)))
+  (check-destination! source-path dest directory?)
+  (attachment source-path dest))
+
+;; the destination of a #:data entry: (cons source dest), or (list source dest)
+(define (entry-parts entry)
+  (cond [(and (pair? entry) (string? (cdr entry))) (values (car entry) (cdr entry))]
+        [(and (list? entry) (= 2 (length entry))) (values (first entry) (second entry))]
+        [else
+         (error 'build-executable
+                "#:data takes (cons source dest) pairs, and not ~e"
+                entry)]))
+
+;; the data/ directory a project may have, and then whatever #:data names
+(define (read-attachments dir data)
+  (define data-directory (build-path dir "data"))
+  (define convention
+    (if (directory-exists? data-directory)
+        (list (attachment data-directory "data"))
+        '()))
+  (define named
+    (for/list ([entry (in-list data)])
+      (define-values (source dest) (entry-parts entry))
+      (attachment-of dir source dest)))
+  (define all (append convention named))
+  (check-one-attachment-a-destination all)
+  all)
+
+;; two attachments cannot land on one destination: the build would write one
+;; over the other
+(define (check-one-attachment-a-destination attachments)
+  (define seen (make-hash))
+  (for ([attachment (in-list attachments)])
+    (define other (hash-ref seen (attachment-dest attachment) #f))
+    (when other
+      (error 'build-executable
+             "~a and ~a both land at ~a"
+             (path->string (attachment-source other))
+             (path->string (attachment-source attachment))
+             (attachment-dest attachment)))
+    (hash-set! seen (attachment-dest attachment) attachment)))
+
 ;; ---- reading a project
 
 (define (read-project dir
                       #:source [source "src"]
                       #:dest [dest "build"]
                       #:name [name #f]
-                      #:entry [entry "main"])
+                      #:entry [entry "main"]
+                      #:data [data '()])
   (define dir* (simplify-path (path->complete-path dir)))
   (unless (directory-exists? dir*)
     (error 'build-executable "no such project directory: ~a" (path->string dir*)))
@@ -155,7 +231,12 @@
   (define name* (or name (directory-name dir*) "program"))
   (unless (regexp-match? #rx"^[A-Za-z0-9][A-Za-z0-9._-]*$" name*)
     (error 'build-executable "~a is not a name for an executable" name*))
-  (project dir* source* dest* name* entry files modules))
+  (when (member runtime-module modules)
+    (error 'build-executable
+           "~a: the build writes the module ~a, so the program cannot have one"
+           (path->string dir*) runtime-module))
+  (define attachments* (read-attachments dir* data))
+  (project dir* source* dest* name* entry files modules attachments*))
 
 ;; two source files that are one module cannot both be the module
 (define (check-one-file-a-module files)

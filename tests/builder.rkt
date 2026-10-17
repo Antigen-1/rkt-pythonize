@@ -134,18 +134,77 @@
     (check-equal? (path->string (project-entry-file project))
                   (path->string (build-path dir "out/python/net/http.py"))))
 
+  (test-case "attachments: data/ is read, and #:data adds"
+    (define dir (tmp-dir))
+    (write-file (build-path dir "src/main.rkt") (python-module "    (print 1)"))
+    (write-file (build-path dir "data/hello.txt") "hello\n")
+    (write-file (build-path dir "assets/logo.png") "PNG")
+    (define project (read-project dir #:data (list (cons "assets" "assets"))))
+    (check-equal? (map (lambda (attachment)
+                         (cons (path->string (attachment-source attachment))
+                               (attachment-dest attachment)))
+                       (project-attachments project))
+                  (list (cons (path->string (build-path dir "data")) "data")
+                        (cons (path->string (build-path dir "assets")) "assets")))
+    (check-exn #rx"nothing to attach"
+               (lambda () (read-project dir #:data (list (cons "nope" "nope")))))
+    (check-exn #rx"not a destination"
+               (lambda () (read-project dir #:data (list (cons "data" "../out")))))
+    (check-exn #rx"not a destination"
+               (lambda () (read-project dir #:data (list (cons "data" "a/../../b")))))
+    (check-exn #rx"needs a destination with a name"
+               (lambda () (read-project dir #:data (list (cons "data" ".")))))
+    (check-exn #rx"both land at data"
+               (lambda () (read-project dir #:data (list (cons "assets" "data"))))))
+
+  (test-case "the attachments are copied and the runtime module is written"
+    (define dir (tmp-dir))
+    (write-file (build-path dir "src/main.rkt") (python-module "    (print 1)"))
+    (write-file (build-path dir "data/hello.txt") "hello\n")
+    (define project (read-project dir))
+    (render-project project #:quiet? #t)
+    (check-equal? (file->string (build-path dir "build/data/hello.txt")) "hello\n")
+    (define runtime (file->string (build-path dir "build/python/rkt_pythonize_runtime.py")))
+    (check-true (string-contains? runtime "def base("))
+    (check-true (string-contains? runtime "def path("))
+    (check-true (string-contains? runtime "def read("))
+    (check-true (string-contains? runtime "def text("))
+    (check-true (string-contains? runtime "_MEIPASS")))
+
+  (test-case "the runtime module is the build's, not the program's"
+    (define dir (tmp-dir))
+    (write-file (build-path dir "src/main.rkt") (python-module "    (print 1)"))
+    (write-file (build-path dir "src/rkt_pythonize_runtime.rkt") (python-module "    (print 2)"))
+    (check-exn #rx"cannot have one"
+               (lambda () (read-project dir))))
+
   (test-case "a program is built and runs"
     (when (getenv "RKT_PYTHONIZE_BUILD_TEST")
       (define dir (tmp-dir))
+      (write-file (build-path dir "data/hello.txt") "hello from the attachment")
       (write-file (build-path dir "src/main.rkt")
                   (python-module
-                   "    (print ((object-get-attr (import util) \"twice\") 21))"))
+                   (string-append
+                    "    (define runtime (import rkt_pythonize_runtime))\n"
+                    "    (print ((object-get-attr (import util) \"twice\") 21))\n"
+                    "    (print ((object-get-attr runtime \"text\") \"data/hello.txt\"))")))
       (write-file (build-path dir "src/util.rkt") (python-module "    (define (twice x) (* x 2))"))
+      (define expected "42\nhello from the attachment\n")
+      ;; the rendered program runs from build/python, with the attachments
+      ;; written beside it
+      (define python (or (find-executable-path "python3") (find-executable-path "python")))
+      (render-project (read-project dir) #:quiet? #t)
+      (check-equal? (with-output-to-string
+                      (lambda ()
+                        (system* python
+                                 (path->string (build-path dir "build/python/main.py")))))
+                    expected)
+      ;; and it is packed, with the attachments inside the executable
       (define venv (build-path dir "venv"))
       (define exe (build-executable dir #:venv venv #:name "app" #:quiet? #t))
       (check-true (file-exists? exe))
       (check-equal? (with-output-to-string (lambda () (system* (path->string exe))))
-                    "42\n")
+                    expected)
       ;; the other shape: a directory that holds the executable and its
       ;; libraries, built from the venv the first build made
       (define directory (build-executable dir

@@ -1001,6 +1001,7 @@ A project’s `"installer.rkt"` builds it, and naming that file in
                    #:dest dest                       
                    #:name name                       
                    #:entry entry                     
+                   #:data data                       
                    #:python python                   
                    #:venv venv                       
                    #:pyinstaller pyinstaller         
@@ -1011,6 +1012,7 @@ A project’s `"installer.rkt"` builds it, and naming that file in
   dest : path-string? = "build"                      
   name : (or/c path-string? #f) = #f                 
   entry : string? = "main"                           
+  data : (listof (cons/c path-string? string?)) = '()
   python : path-string? = "python3"                  
   venv : (or/c path-string? #f) = #f                 
   pyinstaller : (or/c string? #f) = "6.22.3"         
@@ -1023,11 +1025,15 @@ executable it wrote.
 
 `source` is the directory the program is in, and `dest` is where the
 build writes: `"python/"` is the rendered program, `"pyinstaller/"` is
-PyInstaller’s work, and `"bin/"` is the executable.  `dest` cannot be
-inside `source`.
+PyInstaller’s work, `"bin/"` is the executable, and the attachments are
+written as they are named.  `dest` cannot be inside `source`.
 
 `name` is the executable’s name, the project directory’s by default, and
-`entry` is the module the program starts in.
+`entry` is the module the program starts in.  `data` names what the
+program ships: each entry is a `(cons source dest)`, a file or directory
+of the project and the path under the program’s root it lands at.  A
+`"data/"` directory at the project’s root is shipped under `"data/"`
+whether or not `data` says so.
 
 `python` is the interpreter that makes the venv, and so the Python the
 executable carries.  `venv` is the venv PyInstaller lives in; by default
@@ -1059,6 +1065,37 @@ it.  A module that is reached only through a name the program computes
 is not part of the program as far as the build is concerned, and is not
 there at run time.
 
+### Attachments
+
+A program ships files as well as code.  The `"data/"` directory of the
+project is written under `"data/"` in the program, and `#:data` names
+more:
+
+```racket
+(build-executable here                                           
+                 #:data (list (cons "templates" "data/templates")
+                              (cons "README.md" ".")))           
+```
+
+The same files are written under `"build/"`, and inside a one-file
+executable they are unpacked beside the program at startup.  The build
+writes a module that finds them either way:
+
+```racket
+(define python                                                   
+  (#%python-code                                                 
+    (define runtime (import rkt_pythonize_runtime))              
+    (print ((object-get-attr runtime "text") "data/hello.txt"))))
+```
+
+* `path` (and `base`) give the path of an attachment, with the parts
+  joined: `path("data", "hello.txt")`.
+
+* `read` gives an attachment’s bytes, and `text` its UTF-8 text.
+
+* The attachments are read only: a one-file executable unpacks them into
+  a temporary directory and removes it when the program exits.
+
 The bundled modules are bytecode, and bytecode can be taken apart.  If
 what a program is must not be readable, this build is not the tool for
 it.
@@ -1076,7 +1113,7 @@ core/names.rkt               what a name is in Python, and the name tables
 core/params.rkt              parameter lists, and the arguments of a call 
 builder.rkt                  the build system: build-executable           
 builder/project.rkt          a project, read and refused                  
-builder/render.rkt           .rkt -> .py, and .py copied                  
+builder/render.rkt           .rkt -> .py, .py copied, and the attachments 
 builder/venv.rkt             the venv, and pyinstaller in it              
 builder/pack.rkt             pyinstaller, and every module named to it    
 tests/dsl.rkt                end-to-end tests                             

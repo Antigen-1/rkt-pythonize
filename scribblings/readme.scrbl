@@ -1001,6 +1001,7 @@ A project's @filepath{installer.rkt} builds it, and naming that file in
                            [#:dest dest path-string? "build"]
                            [#:name name (or/c path-string? #f) #f]
                            [#:entry entry string? "main"]
+                           [#:data data (listof (cons/c path-string? string?)) '()]
                            [#:python python path-string? "python3"]
                            [#:venv venv (or/c path-string? #f) #f]
                            [#:pyinstaller pyinstaller (or/c string? #f) "6.22.3"]
@@ -1012,11 +1013,16 @@ executable it wrote.
 
 @racket[source] is the directory the program is in, and @racket[dest] is where
 the build writes: @filepath{python/} is the rendered program,
-@filepath{pyinstaller/} is PyInstaller's work, and @filepath{bin/} is the
-executable.  @racket[dest] cannot be inside @racket[source].
+@filepath{pyinstaller/} is PyInstaller's work, @filepath{bin/} is the
+executable, and the attachments are written as they are named.  @racket[dest]
+cannot be inside @racket[source].
 
 @racket[name] is the executable's name, the project directory's by default, and
-@racket[entry] is the module the program starts in.
+@racket[entry] is the module the program starts in.  @racket[data] names what
+the program ships: each entry is a @racket[(cons source dest)], a file or
+directory of the project and the path under the program's root it lands at.  A
+@filepath{data/} directory at the project's root is shipped under
+@filepath{data/} whether or not @racket[data] says so.
 
 @racket[python] is the interpreter that makes the venv, and so the Python the
 executable carries.  @racket[venv] is the venv PyInstaller lives in; by default
@@ -1047,6 +1053,36 @@ cannot see by itself, so the build names every module of the program to it.  A
 module that is reached only through a name the program computes is not part of
 the program as far as the build is concerned, and is not there at run time.
 
+@subsection[#:style 'unnumbered]{Attachments}
+
+A program ships files as well as code.  The @filepath{data/} directory of the
+project is written under @filepath{data/} in the program, and @racket[#:data]
+names more:
+
+@codeblock|{
+(build-executable here
+                 #:data (list (cons "templates" "data/templates")
+                              (cons "README.md" ".")))
+}|
+
+The same files are written under @filepath{build/}, and inside a one-file
+executable they are unpacked beside the program at startup.  The build writes a
+module that finds them either way:
+
+@codeblock|{
+(define python
+  (#%python-code
+    (define runtime (import rkt_pythonize_runtime))
+    (print ((object-get-attr runtime "text") "data/hello.txt"))))
+}|
+
+@itemlist[
+@item{@tt{path} (and @tt{base}) give the path of an attachment, with the parts
+joined: @tt{path("data", "hello.txt")}.}
+@item{@tt{read} gives an attachment's bytes, and @tt{text} its UTF-8 text.}
+@item{The attachments are read only: a one-file executable unpacks them into a
+temporary directory and removes it when the program exits.}]
+
 The bundled modules are bytecode, and bytecode can be taken apart.  If what a
 program is must not be readable, this build is not the tool for it.
 
@@ -1063,7 +1099,7 @@ core/names.rkt               what a name is in Python, and the name tables
 core/params.rkt              parameter lists, and the arguments of a call
 builder.rkt                  the build system: build-executable
 builder/project.rkt          a project, read and refused
-builder/render.rkt           .rkt -> .py, and .py copied
+builder/render.rkt           .rkt -> .py, .py copied, and the attachments
 builder/venv.rkt             the venv, and pyinstaller in it
 builder/pack.rkt             pyinstaller, and every module named to it
 tests/dsl.rkt                end-to-end tests

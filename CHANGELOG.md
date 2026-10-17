@@ -6,6 +6,21 @@ design – a Lisp-to-Python transpiler (LB, then LE, then LM) driven by a
 nanopass pipeline, with a runtime macro system of its own; the last of
 those was 1.3.3.
 
+## 4.2.2
+
+* The build system ships files.  The `"data/"` directory of a project is
+  packed under `"data/"`, and `#:data` names more, each a `(cons source
+  dest)`.  The files are written under `"build/"` as well, so the
+  rendered program runs from `"build/python"` with them, and a one-file
+  executable unpacks them beside itself at startup.
+
+* The build writes `"rkt_pythonize_runtime.py"`, and packs it: its
+  `path` (and `base`) give the path of an attachment, `read` its bytes,
+  and `text` its UTF-8 text, whether the program runs from the
+  executable or from `"build/python"`.  The attachments are read only;
+  the temporary directory a one-file executable unpacks into is removed
+  when the program exits.
+
 ## 4.1.2
 
 * There is a build system.  `"builder.rkt"` exports `build-executable`,
