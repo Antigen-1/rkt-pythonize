@@ -6,6 +6,15 @@ design – a Lisp-to-Python transpiler (LB, then LE, then LM) driven by a
 nanopass pipeline, with a runtime macro system of its own; the last of
 those was 1.3.3.
 
+## 4.2.3
+
+* The workflow’s check that the generated documents match their sources
+  names only the two files that exist.  It still named
+  `"scribblings/rkt-pythonize.scrbl"`, which 4.0.1 replaced with
+  `"scribblings/manual.rkt"`, so `git diff` failed on a path that is not
+  there instead of comparing the documents; the check now runs `git diff
+  --exit-code -- README.md CHANGELOG.md`.
+
 ## 4.2.2
 
 * The build system ships files.  The `"data/"` directory of a project is

@@ -16,6 +16,17 @@ with a runtime macro system of its own; the last of those was 1.3.3.
 
 
 
+@section[#:style 'unnumbered]{4.2.3}
+
+@itemlist[
+@item{The workflow's check that the generated documents match their sources
+names only the two files that exist.  It still named
+@filepath{scribblings/rkt-pythonize.scrbl}, which 4.0.1 replaced with
+@filepath{scribblings/manual.rkt}, so @exec{git diff} failed on a path that is
+not there instead of comparing the documents; the check now runs
+@exec{git diff --exit-code -- README.md CHANGELOG.md}.}]
+
+
 @section[#:style 'unnumbered]{4.2.2}
 
 @itemlist[
