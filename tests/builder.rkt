@@ -1,9 +1,9 @@
 #lang racket/base
 
 ;; The build system's tests: a project is read, its sources are rendered, and
-;; the files a build writes are looked at.  The last test builds a program
-;; with pyinstaller, which needs a venv and a download; it runs only when
-;; RKT_PYTHONIZE_BUILD_TEST is set.
+;; the files a build writes are looked at.  The last test builds a program with
+;; its requirements and PyInstaller, which need a venv and a download; it runs
+;; only when RKT_PYTHONIZE_BUILD_TEST is set.
 
 (require rackunit
          racket/file
@@ -14,6 +14,8 @@
          racket/system
          "../builder/project.rkt"
          "../builder/render.rkt"
+         "../builder/venv.rkt"
+         "../builder/pack.rkt"
          "../builder.rkt")
 
 (define created (box '()))
@@ -34,6 +36,32 @@
 (define (write-file path text)
   (make-directory* (path-only path))
   (display-to-file text path #:exists 'replace))
+
+(define (windows?) (eq? (system-type 'os) 'windows))
+
+;; how many times a text holds a needle
+(define (occurrences text needle)
+  (length (regexp-match* (regexp (regexp-quote needle)) text)))
+
+;; a venv whose python only records what it was asked to do: the install tests
+;; read the log instead of downloading anything
+(define (fake-venv directory log)
+  (define bin (build-path directory (if (windows?) "Scripts" "bin")))
+  (make-directory* bin)
+  (define python (build-path bin (if (windows?) "python.exe" "python")))
+  (display-to-file
+   (format (string-append
+            "#!/bin/sh\n"
+            "printf '%s\\n' \"$*\" >> ~s\n"
+            "case \"$*\" in\n"
+            "  *PyInstaller*) echo \"6.22.3\" ;;\n"
+            "esac\n"
+            "exit 0\n")
+           (path->string log))
+   python
+   #:exists 'replace)
+  (file-or-directory-permissions python #o755)
+  python)
 
 ;; a source file of the program: a module that renders the body, with the
 ;; prelude's prefix pinned so the Python reads the same every time
@@ -134,6 +162,93 @@
     (check-equal? (path->string (project-entry-file project))
                   (path->string (build-path dir "out/python/net/http.py"))))
 
+  (test-case "the venv is the project's, under the build directory"
+    (define dir (tmp-dir))
+    (write-file (build-path dir "src/main.rkt") (python-module "    (print 1)"))
+    (check-equal? (path->string (project-venv-directory (read-project dir)))
+                  (path->string (build-path dir "build/venv")))
+    (check-equal? (path->string (project-venv-directory (read-project dir #:dest "out")))
+                  (path->string (build-path dir "out/venv"))))
+
+  (test-case "packing names the program's modules and the hidden imports"
+    (define dir (simple-project))
+    (define project (read-project dir))
+    (define arguments
+      (pack-arguments project (build-path dir "build/python")
+                      '("six" "net.extra")
+                      #:quiet? #t))
+    (check-not-false (member "--hidden-import" arguments))
+    (check-not-false (member "main" arguments))
+    (check-not-false (member "net.http" arguments))
+    (check-not-false (member "net" arguments))
+    (check-not-false (member "six" arguments))
+    (check-not-false (member "net.extra" arguments))
+    (check-not-false (member "rkt_pythonize_runtime" arguments)))
+
+  (test-case "a project's requirements are requirements.txt and #:requirements"
+    (define dir (simple-project))
+    (define none (project-requirements (read-project dir)))
+    (check-false (requirements-path none))
+    (check-equal? (requirements-entries none) '())
+    (define requirements-file (build-path dir "requirements.txt"))
+    (write-file requirements-file "requests>=2\n")
+    (define convention (project-requirements (read-project dir)))
+    (check-equal? (path->string (requirements-path convention))
+                  (path->string requirements-file))
+    (check-equal? (requirements-entries convention) '())
+    ;; a path names another file
+    (define other (build-path dir "build-deps.txt"))
+    (write-file other "flask\n")
+    (define named (project-requirements (read-project dir #:requirements "build-deps.txt")))
+    (check-equal? (path->string (requirements-path named)) (path->string other))
+    (check-equal? (requirements-entries named) '())
+    ;; strings add to the project's file
+    (define added
+      (project-requirements (read-project dir #:requirements '("six==1.16.0"))))
+    (check-equal? (path->string (requirements-path added))
+                  (path->string requirements-file))
+    (check-equal? (requirements-entries added) '("six==1.16.0"))
+    ;; a file that is not there, and something that is neither a file nor a list
+    (check-exn #rx"no requirements file"
+               (lambda () (read-project dir #:requirements "nope.txt")))
+    (check-exn #rx"#:requirements takes"
+               (lambda () (read-project dir #:requirements 42)))
+    (check-exn #rx"empty requirement"
+               (lambda () (read-project dir #:requirements (list " ")))))
+
+  (test-case "a venv installs its requirements once, and again when they change"
+    (unless (windows?)
+      (define dir (tmp-dir))
+      (define venv (build-path dir "build/venv"))
+      (define log (build-path dir "venv.log"))
+      (define requirements-file (build-path dir "requirements.txt"))
+      (write-file requirements-file "requests>=2\n")
+      (define python (fake-venv venv log))
+      (define declared (requirements requirements-file '("flask")))
+      (define (prepare)
+        (prepare-venv venv declared #:python python #:pyinstaller "6.22.3" #:quiet? #t))
+      (check-equal? (path->string (prepare))
+                    (path->string (venv-python-path venv)))
+      (check-true (file-exists? (stamp-path venv)))
+      (check-equal? (occurrences (file->string log) "pip install") 1)
+      (define stamp (file->string (stamp-path venv)))
+      (check-true (string-contains? stamp "python: "))
+      (check-true (string-contains? stamp "pyinstaller: 6.22.3"))
+      (check-true (string-contains? stamp "requests>=2"))
+      (check-true (string-contains? stamp "flask"))
+      ;; the same declaration: no pip
+      (prepare)
+      (check-equal? (occurrences (file->string log) "pip install") 1)
+      ;; changed requirements: pip again
+      (write-file requirements-file "requests>=3\n")
+      (prepare)
+      (check-equal? (occurrences (file->string log) "pip install") 2)
+      ;; changed PyInstaller version: the requirements are installed with the
+      ;; stamp, and then PyInstaller itself
+      (prepare-venv venv declared #:python python #:pyinstaller "6.22.4" #:quiet? #t)
+      (check-equal? (occurrences (file->string log) "pip install") 4)
+      (check-true (string-contains? (file->string log) "pyinstaller==6.22.4"))))
+
   (test-case "attachments: data/ is read, and #:data adds"
     (define dir (tmp-dir))
     (write-file (build-path dir "src/main.rkt") (python-module "    (print 1)"))
@@ -181,38 +296,53 @@
   (test-case "a program is built and runs"
     (when (getenv "RKT_PYTHONIZE_BUILD_TEST")
       (define dir (tmp-dir))
+      (write-file (build-path dir "requirements.txt") "six==1.17.0\n")
       (write-file (build-path dir "data/hello.txt") "hello from the attachment")
       (write-file (build-path dir "src/main.rkt")
                   (python-module
                    (string-append
                     "    (define runtime (import rkt_pythonize_runtime))\n"
+                    "    (define six (import six))\n"
                     "    (print ((object-get-attr (import util) \"twice\") 21))\n"
-                    "    (print ((object-get-attr runtime \"text\") \"data/hello.txt\"))")))
+                    "    (print ((object-get-attr runtime \"text\") \"data/hello.txt\"))\n"
+                    "    (print (object-get-attr six \"__version__\"))")))
       (write-file (build-path dir "src/util.rkt") (python-module "    (define (twice x) (* x 2))"))
-      (define expected "42\nhello from the attachment\n")
-      ;; the rendered program runs from build/python, with the attachments
-      ;; written beside it
-      (define python (or (find-executable-path "python3") (find-executable-path "python")))
-      (render-project (read-project dir) #:quiet? #t)
+      (define expected "42\nhello from the attachment\n1.17.0\n")
+      ;; the rendered program runs from build/python with the venv's Python,
+      ;; with the attachments written beside it
+      (define project (read-project dir))
+      (define venv (build-path dir "build/venv"))
+      (define venv-python
+        (prepare-venv venv (project-requirements project) #:quiet? #t))
+      (render-project project #:quiet? #t)
       (check-equal? (with-output-to-string
                       (lambda ()
-                        (system* python
+                        (system* venv-python
                                  (path->string (build-path dir "build/python/main.py")))))
                     expected)
-      ;; and it is packed, with the attachments inside the executable
-      (define venv (build-path dir "venv"))
-      (define exe (build-executable dir #:venv venv #:name "app" #:quiet? #t))
+      ;; and it is packed, with the attachments inside the executable, and the
+      ;; dependency's modules named to PyInstaller because its import is dynamic
+      (define exe (build-executable dir #:name "app" #:quiet? #t))
       (check-true (file-exists? exe))
+      (check-true (directory-exists? venv))
+      (check-true (file-exists? (stamp-path venv)))
+      (define dependencies (venv-hidden-imports venv-python))
+      (check-not-false (member "six" dependencies))
+      (check-false (member "PyInstaller" dependencies))
       (check-equal? (with-output-to-string (lambda () (system* (path->string exe))))
                     expected)
       ;; the other shape: a directory that holds the executable and its
-      ;; libraries, built from the venv the first build made
+      ;; libraries, built from the venv the first build made, with the
+      ;; dependency named explicitly and the collection off
       (define directory (build-executable dir
-                                          #:venv venv
                                           #:name "app-dir"
                                           #:onefile? #f
+                                          #:collect-dependencies? #f
+                                          #:hidden-imports '("six")
                                           #:quiet? #t))
-      (check-true (file-exists? directory))))
+      (check-true (file-exists? directory))
+      (check-equal? (with-output-to-string (lambda () (system* (path->string directory))))
+                    expected)))
 
   ;; leave nothing behind
   (for ([dir (in-list (unbox created))])

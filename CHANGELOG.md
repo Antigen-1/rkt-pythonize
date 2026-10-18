@@ -6,6 +6,27 @@ design – a Lisp-to-Python transpiler (LB, then LE, then LM) driven by a
 nanopass pipeline, with a runtime macro system of its own; the last of
 those was 1.3.3.
 
+## 4.3.4
+
+* The build installs the program’s Python dependencies.  A project’s
+  `"requirements.txt"` is read in pip’s format, `#:requirements` names
+  another file, and a list of strings adds requirements to the project’s
+  own; the build installs them into the project’s venv before
+  PyInstaller runs. A stamp in the venv records the declaration, so an
+  unchanged build installs nothing, and pip’s cache keeps a package from
+  being downloaded twice.
+
+* PyInstaller is a build dependency of each project, not one venv shared
+  by every project the installation builds.  The venv is `"venv/"` under
+  the build directory by default (`#:venv` still names another), and the
+  add-on directory is no longer used.
+
+* The build names the top-level modules of the project’s Python
+  dependencies to PyInstaller, so `(import x)` reaches a dependency as
+  well as a module of the program; PyInstaller itself is left out.
+  `#:hidden-imports` adds a module the collection does not find, and
+  `#:collect-dependencies?` turns the collection off.
+
 ## 4.2.4
 
 * The committed `"README.md"` is generated where the package is

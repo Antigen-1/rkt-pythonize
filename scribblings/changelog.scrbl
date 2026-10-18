@@ -16,6 +16,28 @@ with a runtime macro system of its own; the last of those was 1.3.3.
 
 
 
+@section[#:style 'unnumbered]{4.3.4}
+
+@itemlist[
+@item{The build installs the program's Python dependencies.  A project's
+@filepath{requirements.txt} is read in pip's format, @racket[#:requirements]
+names another file, and a list of strings adds requirements to the project's
+own; the build installs them into the project's venv before PyInstaller runs.
+A stamp in the venv records the declaration, so an unchanged build installs
+nothing, and pip's cache keeps a package from being downloaded twice.}
+
+@item{PyInstaller is a build dependency of each project, not one venv shared by
+every project the installation builds.  The venv is @filepath{venv/} under the
+build directory by default (@racket[#:venv] still names another), and the
+add-on directory is no longer used.}
+
+@item{The build names the top-level modules of the project's Python
+dependencies to PyInstaller, so @racket[(import x)] reaches a dependency as well
+as a module of the program; PyInstaller itself is left out.
+@racket[#:hidden-imports] adds a module the collection does not find, and
+@racket[#:collect-dependencies?] turns the collection off.}]
+
+
 @section[#:style 'unnumbered]{4.2.4}
 
 @itemlist[

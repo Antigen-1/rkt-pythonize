@@ -961,11 +961,12 @@ A project is a directory whose @filepath{src/} is the program:
 @plain-code|{
 myapp/
   src/
-    main.rkt      the entry: where the program starts
-    util.rkt      another module of the program
-    helper.py     a Python module, copied as it is
-    net/http.rkt  a module in a package: net/http.py
-  build/          what the build writes
+    main.rkt         the entry: where the program starts
+    util.rkt         another module of the program
+    helper.py        a Python module, copied as it is
+    net/http.rkt     a module in a package: net/http.py
+  requirements.txt   the Python dependencies, if any: pip's format
+  build/             what the build writes: python/, venv/, pyinstaller/, bin/
 }|
 
 @itemlist[
@@ -983,6 +984,11 @@ module.}
 @filepath{src/}, and the modules that use it require it by its path.}
 @item{The program starts in the module @filepath{src/main.rkt}; @racket[#:entry]
 names another.}]
+
+The program's Python dependencies are declared in @filepath{requirements.txt}
+at the project's root, in pip's format.  @racket[#:requirements] names another
+file or adds requirement strings, and the build installs them into the
+project's venv before it packs.
 
 A project's @filepath{installer.rkt} builds it, and naming that file in
 @filepath{info.rkt} makes @exec{raco pkg install} build the program:
@@ -1002,6 +1008,11 @@ A project's @filepath{installer.rkt} builds it, and naming that file in
                            [#:name name (or/c path-string? #f) #f]
                            [#:entry entry string? "main"]
                            [#:data data (listof (cons/c path-string? string?)) '()]
+                           [#:requirements requirements
+                                            (or/c path-string? (listof string?) #f)
+                                            #f]
+                           [#:hidden-imports hidden-imports (listof string?) '()]
+                           [#:collect-dependencies? collect-dependencies? boolean? #t]
                            [#:python python path-string? "python3"]
                            [#:venv venv (or/c path-string? #f) #f]
                            [#:pyinstaller pyinstaller (or/c string? #f) "6.22.3"]
@@ -1013,6 +1024,7 @@ executable it wrote.
 
 @racket[source] is the directory the program is in, and @racket[dest] is where
 the build writes: @filepath{python/} is the rendered program,
+@filepath{venv/} is the project's Python dependencies and PyInstaller,
 @filepath{pyinstaller/} is PyInstaller's work, @filepath{bin/} is the
 executable, and the attachments are written as they are named.  @racket[dest]
 cannot be inside @racket[source].
@@ -1024,18 +1036,39 @@ directory of the project and the path under the program's root it lands at.  A
 @filepath{data/} directory at the project's root is shipped under
 @filepath{data/} whether or not @racket[data] says so.
 
+@racket[requirements] is the program's Python dependencies: @racket[#f] reads
+@filepath{requirements.txt} at the project's root if it is there, a path names
+another file, and a list of strings adds requirements to the project's file.
+The file is pip's own format, and a relative path is under
+@racket[project-directory].
+
+@racket[hidden-imports] names Python modules to give PyInstaller as hidden
+imports, for a module the collection below does not find or one the program
+reaches through a name it computes.  @racket[collect-dependencies?] is
+@racket[#t] by default: the build names the top-level modules of the
+distributions installed in the project's venv to PyInstaller, so a dependency
+the program imports with @racket[(import x)] is packed; PyInstaller itself is
+left out.  @racket[#f] names only the program's modules and
+@racket[hidden-imports].
+
 @racket[python] is the interpreter that makes the venv, and so the Python the
-executable carries.  @racket[venv] is the venv PyInstaller lives in; by default
-it is one per installation, under the add-on directory, made on first use and
-reused after that.  @racket[pyinstaller] is the version installed into the venv;
-@racket[#f] takes the version that is already there.
+executable carries.  @racket[venv] is the project's venv, where the build
+installs the requirements and PyInstaller; it is @filepath{venv/} under
+@racket[dest] by default, and a relative @racket[venv] is under
+@racket[project-directory].  @racket[pyinstaller] is the version installed into
+that venv; @racket[#f] takes the version that is already there.
 
 @racket[onefile?] makes one file, and @racket[#f] a directory that holds the
 executable beside its libraries.  @racket[quiet?] says nothing except on
 error.}
 
 The build starts with nothing but @exec{python3} and its @tt{venv} module: the
-first build makes the venv and installs PyInstaller into it.  PyInstaller needs
+first build makes the project's venv, and installs the program's Python
+dependencies and PyInstaller into it.  A stamp in the venv records what it was
+made from, so a build whose declaration is unchanged installs nothing;
+changing the declaration runs pip again, and pip's cache keeps a package that
+was downloaded before from being downloaded again.  Removing a requirement does
+not uninstall it: delete the venv to start from nothing.  PyInstaller needs
 @exec{ldd}, @exec{objdump} and @exec{objcopy}, and no C compiler; there is no
 Rust and nothing else to install.
 
@@ -1049,9 +1082,40 @@ executable runs where @tt{glibc} is at least the build machine's.
 
 The modules of the program reach each other the way LE says: @racket[(import
 util)] renders to @tt{importlib.import_module("util")}, which PyInstaller
-cannot see by itself, so the build names every module of the program to it.  A
-module that is reached only through a name the program computes is not part of
-the program as far as the build is concerned, and is not there at run time.
+cannot see by itself, so the build names every module of the program to it.
+The build also names the top-level modules of the project's Python dependencies
+to it, because a dependency the program reaches with @racket[(import x)] is a
+dynamic import too; @racket[#:hidden-imports] names modules the collection
+misses, and @racket[#:collect-dependencies? #f] turns the collection off.  A
+module reached only through a name the program computes, and not installed as
+a distribution, is not part of the program as far as the build is concerned,
+and is not there at run time.
+
+@subsection[#:style 'unnumbered]{Python dependencies}
+
+The program's dependencies are a @filepath{requirements.txt} at the project's
+root, in pip's format:
+
+@plain-code|{
+requests>=2
+six==1.16.0
+}|
+
+The build installs the file into the project's venv before PyInstaller runs.
+It also names the top-level modules of these distributions to PyInstaller, so a
+dependency the program reaches with @racket[(import x)] is packed; a module the
+collection misses is named with @racket[#:hidden-imports].
+@racket[#:requirements] names another file, or adds requirements to the
+project's own:
+
+@codeblock|{
+(build-executable here #:requirements '("cryptography>=42"))
+}|
+
+A venv belongs to one project: deleting the venv (by default
+@filepath{build/venv}) makes the next build make a fresh one and install
+everything again, and two projects never share their dependencies.  pip's cache
+is what keeps the download of a package from happening twice.
 
 @subsection[#:style 'unnumbered]{Attachments}
 
@@ -1100,7 +1164,7 @@ core/params.rkt              parameter lists, and the arguments of a call
 builder.rkt                  the build system: build-executable
 builder/project.rkt          a project, read and refused
 builder/render.rkt           .rkt -> .py, .py copied, and the attachments
-builder/venv.rkt             the venv, and pyinstaller in it
+builder/venv.rkt             the project's venv, its dependencies and pyinstaller
 builder/pack.rkt             pyinstaller, and every module named to it
 tests/dsl.rkt                end-to-end tests
 tests/names.rkt              the conversion, character by character

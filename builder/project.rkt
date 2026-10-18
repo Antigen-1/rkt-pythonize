@@ -2,14 +2,18 @@
 
 ;; A project is a directory that holds a program:
 ;;
-;;   <project>/src/…   the program: every .rkt there is a module of it and
-;;                     provides python, every .py there is a module of it
-;;   <project>/build/  what the build writes: python/, pyinstaller/, bin/
+;;   <project>/src/…              the program: every .rkt there is a module of
+;;                                it and provides python, every .py there is a
+;;                                module of it
+;;   <project>/requirements.txt   the Python dependencies, if any
+;;   <project>/build/             what the build writes: python/, venv/,
+;;                                pyinstaller/, bin/
 ;;
 ;; This module is the first stage of the build: it reads a project and says
 ;; what the build will do -- which file is which Python module, what the
-;; program is called, and where it starts -- and it refuses a project that
-;; cannot be built, before anything is compiled or written.
+;; program is called, where it starts, and what Python dependencies it
+;; declares -- and it refuses a project that cannot be built, before anything
+;; is compiled or written.
 
 (require racket/list
          racket/path
@@ -18,8 +22,10 @@
 (provide (struct-out project)
          (struct-out source-file)
          (struct-out attachment)
+         (struct-out requirements)
          read-project
          project-python-directory
+         project-venv-directory
          project-output-file
          project-entry-file
          project-module-path
@@ -33,6 +39,10 @@
 ;; path its contents land at under the program's root
 (struct attachment (source dest) #:transparent)
 
+;; the Python dependencies a project declares: a requirements file, whose
+;; lines pip reads, and requirement strings the build was given
+(struct requirements (path entries) #:transparent)
+
 ;; the module the build writes, and packs, so a program can find what was
 ;; attached to it
 (define runtime-module "rkt_pythonize_runtime")
@@ -44,8 +54,10 @@
 ;; entry       the module the program starts in
 ;; files       the program's source files, sorted
 ;; modules     the Python module names the program has, sorted
+;; requirements the project's Python dependencies
 ;; attachments the files and directories the program ships
-(struct project (dir source dest name entry files modules attachments) #:transparent)
+(struct project (dir source dest name entry files modules requirements attachments)
+  #:transparent)
 
 ;; a Python module name: what a file's name and its directories must be, so
 ;; that (import x) -- which renders the name as it is written -- finds it
@@ -118,6 +130,11 @@
 ;; the directory the rendered program is written to
 (define (project-python-directory project)
   (build-path (project-dest project) "python"))
+
+;; the directory the project's venv is in: with the rest of what the build
+;; writes, so removing the build removes it
+(define (project-venv-directory project)
+  (build-path (project-dest project) "venv"))
 
 ;; where one source file's Python is written: the same path, as .py
 (define (project-output-file project file)
@@ -196,6 +213,35 @@
              (attachment-dest attachment)))
     (hash-set! seen (attachment-dest attachment) attachment)))
 
+;; ---- Python dependencies
+
+;; #f is the project's own requirements.txt, if it has one; a path names
+;; another file; a list of strings adds requirements to the project's file when
+;; it has one
+(define (read-requirements dir declared)
+  (define convention (build-path dir "requirements.txt"))
+  (define (project-file path)
+    (simplify-path (path->complete-path path dir)))
+  (cond
+    [(not declared)
+     (requirements (and (file-exists? convention) convention) '())]
+    [(path-string? declared)
+     (define path (project-file declared))
+     (unless (file-exists? path)
+       (error 'build-executable
+              "~a: there is no requirements file ~a"
+              (path->string dir) (path->string path)))
+     (requirements path '())]
+    [(and (list? declared) (andmap string? declared))
+     (for ([entry (in-list declared)])
+       (when (string=? (string-trim entry) "")
+         (error 'build-executable "#:requirements has an empty requirement")))
+     (requirements (and (file-exists? convention) convention) declared)]
+    [else
+     (error 'build-executable
+            "#:requirements takes a requirements file or a list of requirement strings, not ~e"
+            declared)]))
+
 ;; ---- reading a project
 
 (define (read-project dir
@@ -203,7 +249,8 @@
                       #:dest [dest "build"]
                       #:name [name #f]
                       #:entry [entry "main"]
-                      #:data [data '()])
+                      #:data [data '()]
+                      #:requirements [declared #f])
   (define dir* (simplify-path (path->complete-path dir)))
   (unless (directory-exists? dir*)
     (error 'build-executable "no such project directory: ~a" (path->string dir*)))
@@ -235,8 +282,9 @@
     (error 'build-executable
            "~a: the build writes the module ~a, so the program cannot have one"
            (path->string dir*) runtime-module))
+  (define requirements* (read-requirements dir* declared))
   (define attachments* (read-attachments dir* data))
-  (project dir* source* dest* name* entry files modules attachments*))
+  (project dir* source* dest* name* entry files modules requirements* attachments*))
 
 ;; two source files that are one module cannot both be the module
 (define (check-one-file-a-module files)
