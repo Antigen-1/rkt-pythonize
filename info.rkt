@@ -5,6 +5,6 @@
 (define scribblings '(("scribblings/manual.rkt" ())))
 (define pkg-desc "An LE-to-Python compiler behind one macro")
 (define installers (list "installer.rkt"))
-(define version "4.3.4")
+(define version "4.3.5")
 (define pkg-authors '(zhanghao))
 (define license '(Apache-2.0 OR MIT))

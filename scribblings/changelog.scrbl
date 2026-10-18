@@ -16,6 +16,22 @@ with a runtime macro system of its own; the last of those was 1.3.3.
 
 
 
+@section[#:style 'unnumbered]{4.3.5}
+
+@itemlist[
+@item{The tests are faster.  The plain tests share one compiler namespace
+instead of instantiating the compiler for every assertion; a namespace that
+defines macros attaches the instance the shared namespace already made; and one
+Python process runs every rendered program instead of a process for each.  The
+warnings a program logs are read until a sentinel message rather than by
+waiting a fixed interval.}
+
+@item{The threading test that used to build a 1200-step chain now sets Python's
+recursion limit below a 100-step chain.  It still shows that the trampoline
+keeps a chain flat without nesting a call for each step, and the suite takes
+about a minute instead of minutes.}]
+
+
 @section[#:style 'unnumbered]{4.3.4}
 
 @itemlist[

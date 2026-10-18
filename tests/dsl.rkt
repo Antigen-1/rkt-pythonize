@@ -4,8 +4,7 @@
 ;; program, look at the Python, and run it with python3.
 
 (require rackunit
-         racket/file
-         racket/port
+         json
          racket/string
          racket/system
          rkt-pythonize
@@ -21,36 +20,106 @@
         (and candidate (find-executable-path candidate)))
       (error 'test "no Python found: set PYTHON_EXE, or put python3 or python on PATH")))
 
-;; a program goes in a file: the command line has its own limit, and a chain a
-;; thousand steps long reaches it
-(define (program-file)
-  (define dir (build-path (current-directory) ".tmp"))
-  (make-directory* dir)
-  (make-temporary-file "rkt-pythonize-~a.py" #f dir))
+;; one Python process runs every program, instead of starting an interpreter
+;; for each: each request is a line of JSON with the program, and each response
+;; is a line with what it printed.  The program runs in a fresh globals
+;; dictionary, so one program cannot see another's names.
+(define python-worker-code
+  #<<PYTHON
+import io
+import json
+import sys
+import traceback
+
+def run(code):
+    out = io.StringIO()
+    err = io.StringIO()
+    old_out, old_err = sys.stdout, sys.stderr
+    old_limit = sys.getrecursionlimit()
+    sys.stdout, sys.stderr = out, err
+    ok = True
+    try:
+        exec(compile(code, "<rkt-pythonize-test>", "exec"),
+             {"__name__": "__main__", "__file__": "<rkt-pythonize-test>"})
+    except BaseException:
+        ok = False
+        traceback.print_exc()
+    finally:
+        sys.stdout, sys.stderr = old_out, old_err
+        sys.setrecursionlimit(old_limit)
+    return {"ok": ok, "out": out.getvalue(), "err": err.getvalue()}
+
+for line in sys.stdin:
+    request = json.loads(line)
+    response = run(request["code"])
+    sys.stdout.write(json.dumps(response) + "\n")
+    sys.stdout.flush()
+PYTHON
+  )
+
+(define python-worker #f)
+
+(define (python-worker-process)
+  (unless python-worker
+    (define-values (process stdout stdin stderr)
+      (subprocess #f #f (current-error-port)
+                  (find-python) "-u" "-c" python-worker-code))
+    (set! python-worker (vector process stdout stdin stderr)))
+  python-worker)
 
 (define (run-python code)
-  (define out (open-output-string))
-  (define err (open-output-string))
-  (define file (program-file))
-  (call-with-output-file file #:exists 'truncate (lambda (o) (display code o)))
-  (define status
-    (parameterize ([current-output-port out] [current-error-port err])
-      (system* (find-python) (path->string file))))
-  (delete-file file)
-  (values status (get-output-string out) (get-output-string err)))
+  (define worker (python-worker-process))
+  (define stdout (vector-ref worker 1))
+  (define stdin (vector-ref worker 2))
+  (displayln (jsexpr->string (hasheq 'code code)) stdin)
+  (flush-output stdin)
+  (define line (read-line stdout))
+  (when (eof-object? line)
+    (set! python-worker #f)
+    (error 'test "the Python test worker stopped"))
+  (define response (string->jsexpr line))
+  (values (hash-ref response 'ok #f)
+          (hash-ref response 'out "")
+          (hash-ref response 'err "")))
 
 ;; the macro renders while the module compiles, so a program that has to be
-;; refused is expanded at run time here, where the failure can be caught
+;; refused is expanded at run time here, where the failure can be caught.
+;;
+;; Requiring the compiler is what costs the time, not expanding one form, so
+;; the plain tests share a namespace and put its parameters back before each
+;; use.  A test that defines macros still gets a namespace of its own: a
+;; defmacro's binding stays in the namespace it was evaluated in.  That
+;; namespace attaches the compiler instance instead of instantiating it again.
+(define (load-compiler-namespace)
+  (define namespace (make-base-namespace))
+  (parameterize ([current-namespace namespace])
+    (eval '(require rkt-pythonize))
+    (eval '(begin-for-syntax (prelude-prefix "")))
+    (eval '(begin-for-syntax (python-name-style 'snake))))
+  namespace)
+
+(define compiler-namespace (load-compiler-namespace))
+
+(define (make-macro-namespace)
+  (define namespace (make-base-namespace))
+  (namespace-attach-module compiler-namespace 'rkt-pythonize namespace)
+  (parameterize ([current-namespace namespace])
+    (eval '(require rkt-pythonize)))
+  namespace)
+
 ;; the prelude's names carry a prefix the compiler makes up; a test pins it, so
 ;; the Python it looks at reads the same every time
-(define (pin-prelude!)
-  (eval '(begin-for-syntax (prelude-prefix ""))))
+(define (reset-compiler! style prefix)
+  (eval `(begin-for-syntax (python-name-style ',style)))
+  (eval `(begin-for-syntax (prelude-prefix ,prefix))))
+
+(define (expand-in-compiler forms style prefix)
+  (parameterize ([current-namespace compiler-namespace])
+    (reset-compiler! style prefix)
+    (eval `(#%python-code ,@forms))))
 
 (define (python-of-data forms)
-  (parameterize ([current-namespace (make-base-namespace)])
-    (eval '(require rkt-pythonize))
-    (pin-prelude!)
-    (eval `(#%python-code ,@forms))))
+  (expand-in-compiler forms 'snake ""))
 
 (define (refuses? forms)
   (with-handlers ([exn:fail? (lambda (e) #t)])
@@ -65,11 +134,10 @@
 
 ;; a program whose macros are defined in the namespace it is expanded in: a
 ;; macro is visible where its name is bound, and an eval'd defmacro binds it
-;; there
+;; there, so the namespace cannot be shared with another program
 (define (python-of-data-with defs forms)
-  (parameterize ([current-namespace (make-base-namespace)])
-    (eval '(require rkt-pythonize))
-    (pin-prelude!)
+  (parameterize ([current-namespace (make-macro-namespace)])
+    (reset-compiler! 'snake "")
     (for ([d (in-list defs)]) (eval d))
     (eval `(#%python-code ,@forms))))
 
@@ -81,18 +149,11 @@
 ;; a program compiled in another style: the style is a parameter of the
 ;; compiler, so it is set at the phase the compiler runs in, before the form
 (define (python-of-data-in-style style forms)
-  (parameterize ([current-namespace (make-base-namespace)])
-    (eval '(require rkt-pythonize))
-    (pin-prelude!)
-    (eval `(begin-for-syntax (python-name-style ',style)))
-    (eval `(#%python-code ,@forms))))
+  (expand-in-compiler forms style ""))
 
 ;; and a test that is about the prefix pins it to something it can read
 (define (python-of-data-with-prefix prefix forms)
-  (parameterize ([current-namespace (make-base-namespace)])
-    (eval '(require rkt-pythonize))
-    (eval `(begin-for-syntax (prelude-prefix ,prefix)))
-    (eval `(#%python-code ,@forms))))
+  (expand-in-compiler forms 'snake prefix))
 
 (define (refusal-message-in-style style forms)
   (with-handlers ([exn:fail? (lambda (e) (exn-message e))])
@@ -100,18 +161,20 @@
     #f))
 
 ;; the warnings the compiler logs for a program, which is how a name the
-;; program never binds is seen
+;; program never binds is seen.  Logging is ordered, so a message of our own
+;; after the compiler's is what `sync` waits for; no fixed timeout is needed.
 (define (warnings-of forms [style 'snake])
   (define logger (make-logger))
   (define receiver (make-log-receiver logger 'warning))
-  (define messages '())
-  (parameterize ([current-logger logger]) (python-of-data-in-style style forms))
-  (let loop ()
-    (define message (sync/timeout 0.3 receiver))
-    (when message
-      (set! messages (append messages (list (vector-ref message 1))))
-      (loop)))
-  (string-join messages " "))
+  (define done (gensym))
+  (parameterize ([current-logger logger])
+    (python-of-data-in-style style forms)
+    (log-message logger 'warning "done" done))
+  (let loop ([messages '()])
+    (define message (sync receiver))
+    (if (eq? (vector-ref message 2) done)
+        (string-join (reverse messages) " ")
+        (loop (cons (vector-ref message 1) messages)))))
 
 (define (python-output code)
   (define-values (status out err) (run-python code))
@@ -1136,9 +1199,11 @@
     (check-true (string-contains? (python-of-data '((print (-> 7)))) "print(7)\n"))
 
   (test-case "a chain is flat however many steps it has"
-    ;; more steps than Python's own recursion limit: the trampoline is what
-    ;; keeps this from nesting a call per step
-    (define steps 1200)
+    ;; more steps than Python's own recursion limit: the program sets the limit
+    ;; below the chain's length, so the trampoline is what keeps the chain from
+    ;; nesting a call per step
+    (define steps 100)
+    (define limit 50)
     (define code
       (python-of-data-with
        (list `(defmacro (many x)
@@ -1147,7 +1212,9 @@
                   (if (= n 0)
                       `(-> ,x ,@(reverse seen))
                       (loop (sub1 n) (cons '(add1) seen))))))
-       '((define (add1 x) (+ x 1))
+       `((define (add1 x) (+ x 1))
+         (define sys (import sys))
+         ((object-get-attr sys "setrecursionlimit") ,limit)
          (print (many 0)))))
     (check-equal? (python-output code) (format "~a\n" steps))))
 )
